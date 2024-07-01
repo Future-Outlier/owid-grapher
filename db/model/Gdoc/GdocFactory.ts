@@ -4,6 +4,7 @@ import {
     DATA_INSIGHTS_INDEX_PAGE_SIZE,
     DbEnrichedPostGdoc,
     DbInsertPostGdocLink,
+    DbInsertPostGdocXImage,
     DbPlainTag,
     DbRawPostGdoc,
     GdocsContentSource,
@@ -15,6 +16,7 @@ import {
     OwidGdocType,
     PostsGdocsLinksTableName,
     PostsGdocsTableName,
+    PostsGdocsXImagesTableName,
     PostsGdocsXTagsTableName,
     checkIsOwidGdocType,
     extractGdocIndexItem,
@@ -32,9 +34,12 @@ import {
     KnexReadonlyTransaction,
     knexRaw,
     KnexReadWriteTransaction,
+    getImageMetadataByFilenames,
+    getPublishedGdocPostsWithTags,
 } from "../../db.js"
 import { enrichedBlocksToMarkdown } from "./enrichedToMarkdown.js"
 import { GdocAuthor } from "./GdocAuthor.js"
+import { fetchImagesFromDriveAndSyncToS3 } from "../Image.js"
 
 export function gdocFromJSON(
     json: Record<string, any>
@@ -53,10 +58,6 @@ export function gdocFromJSON(
     json.createdAt = new Date(json.createdAt)
     json.publishedAt = json.publishedAt ? new Date(json.publishedAt) : null
     json.updatedAt = new Date(json.updatedAt)
-
-    // `tags` ordinarily gets populated via a join table in .load(), for our purposes we don't need it here
-    // except for the fact that loadRelatedCharts() assumes the array exists
-    json.tags = json.tags
 
     return match(type)
         .with(
@@ -96,7 +97,6 @@ export async function createGdocAndInsertIntoDb(
     // We have to fetch it here because we need to know the type of the Gdoc in load()
     const base = new GdocBase(id)
     await base.fetchAndEnrichGdoc()
-    await upsertGdoc(knex, base)
 
     // Load its metadata and state so that subclass parsing & validation is also done.
     // This involves a second call to the DB and Google, which makes me sad, but it'll do for now.
@@ -106,8 +106,13 @@ export async function createGdocAndInsertIntoDb(
         GdocsContentSource.Gdocs
     )
 
-    // 2024-03-12 Daniel: We used to save here before the knex refactor but I think that was redundant?
-    // await gdoc.save()
+    // Save the enriched Gdoc to the database (including subclass-specific
+    // enrichments, cf. _enrichSubclassContent()). Otherwise subclass
+    // enrichments are not present on the Gdoc subclass when loading from the DB
+    // (GdocsContentSource.Internal), since subclass enrichements are only done
+    // while fetching the live gdocs (GdocsContentSource.Gdocs) in
+    // loadGdocFromGdocBase().
+    await upsertGdoc(knex, gdoc)
 
     return gdoc
 }
@@ -198,7 +203,7 @@ export async function getAllMinimalGdocBaseObjects(
                 published,
                 content ->> '$.subtitle' as subtitle,
                 content ->> '$.excerpt' as excerpt,
-                content ->> '$.type' as type,
+                type,
                 content ->> '$."featured-image"' as "featured-image"
             FROM posts_gdocs
             WHERE published = 1
@@ -221,7 +226,7 @@ export async function getAllMinimalGdocBaseObjects(
     })
 }
 
-export async function getGdocBaseObjectBySlug(
+export async function getPublishedGdocBaseObjectBySlug(
     knex: KnexReadonlyTransaction,
     slug: string,
     fetchLinkedTags: boolean
@@ -232,7 +237,8 @@ export async function getGdocBaseObjectBySlug(
             SELECT *
             FROM posts_gdocs
             WHERE slug = ?
-            AND published = 1`,
+            AND published = 1
+            AND publishedAt <= NOW()`,
         [slug]
     )
     if (!row) return undefined
@@ -261,7 +267,7 @@ export async function getAndLoadGdocBySlug(
     knex: KnexReadWriteTransaction,
     slug: string
 ): Promise<GdocPost | GdocDataInsight | GdocHomepage | GdocAuthor> {
-    const base = await getGdocBaseObjectBySlug(knex, slug, true)
+    const base = await getPublishedGdocBaseObjectBySlug(knex, slug, true)
     if (!base) {
         throw new Error(
             `No published Google Doc with slug "${slug}" found in the database`
@@ -280,6 +286,20 @@ export async function getAndLoadGdocById(
     if (!base)
         throw new Error(`No Google Doc with id "${id}" found in the database`)
     return loadGdocFromGdocBase(knex, base, contentSource)
+}
+
+// TODO: this transaction is only RW because somewhere inside it we fetch images
+export async function createOrLoadGdocById(
+    trx: KnexReadWriteTransaction,
+    id: string
+): Promise<OwidGdoc> {
+    // Check to see if the gdoc already exists in the database
+    const existingGdoc = await getGdocBaseObjectById(trx, id, false)
+    if (existingGdoc) {
+        return loadGdocFromGdocBase(trx, existingGdoc, GdocsContentSource.Gdocs)
+    } else {
+        return createGdocAndInsertIntoDb(trx, id)
+    }
 }
 
 // From an ID, get a Gdoc object with all its metadata and state loaded, in its correct subclass.
@@ -321,6 +341,9 @@ export async function loadGdocFromGdocBase(
     if (contentSource === GdocsContentSource.Gdocs) {
         // TODO: if we get here via fromJSON then we have already done this - optimize that?
         await gdoc.fetchAndEnrichGdoc()
+        // If we're loading from Gdocs, now's also the time to fetch images from gdrive and sync them to S3
+        // In any other case, the images should already be in the DB and S3
+        await fetchImagesFromDriveAndSyncToS3(knex, gdoc.filenames)
     }
 
     await gdoc.loadState(knex)
@@ -345,7 +368,7 @@ export async function getAndLoadPublishedDataInsights(
             SELECT *
             FROM posts_gdocs
             WHERE published = 1
-            AND content ->> '$.type' = ?
+            AND type = ?
             AND publishedAt <= NOW()
             ORDER BY publishedAt DESC
             ${limitOffsetClause}`,
@@ -378,44 +401,9 @@ export async function getAndLoadPublishedDataInsights(
 export async function getAndLoadPublishedGdocPosts(
     knex: KnexReadWriteTransaction
 ): Promise<GdocPost[]> {
-    const rows = await knexRaw<DbRawPostGdoc>(
-        knex,
-        `-- sql
-            SELECT *
-            FROM posts_gdocs
-            WHERE published = 1
-            AND content ->> '$.type' IN (:types)
-            AND publishedAt <= NOW()
-            ORDER BY publishedAt DESC`,
-        {
-            types: [
-                OwidGdocType.Article,
-                OwidGdocType.LinearTopicPage,
-                OwidGdocType.TopicPage,
-                OwidGdocType.Fragment,
-                OwidGdocType.AboutPage,
-            ],
-        }
-    )
-    const ids = rows.map((row) => row.id)
-    const tags = await knexRaw<DbPlainTag>(
-        knex,
-        `-- sql
-                SELECT gt.gdocId as gdocId, tags.*
-                FROM tags
-                JOIN posts_gdocs_x_tags gt ON gt.tagId = tags.id
-                WHERE gt.gdocId in (:ids)`,
-        { ids: ids }
-    )
-    const groupedTags = groupBy(tags, "gdocId")
-    const enrichedRows = rows.map((row) => {
-        return {
-            ...parsePostsGdocsRow(row),
-            tags: groupedTags[row.id] ? groupedTags[row.id] : null,
-        } satisfies OwidGdocBaseInterface
-    })
+    const rows = await getPublishedGdocPostsWithTags(knex)
     const gdocs = await Promise.all(
-        enrichedRows.map(async (row) => loadGdocFromGdocBase(knex, row))
+        rows.map(async (row) => loadGdocFromGdocBase(knex, row))
     )
     return gdocs as GdocPost[]
 }
@@ -430,7 +418,7 @@ export async function loadPublishedGdocAuthors(
             SELECT *
             FROM posts_gdocs
             WHERE published = 1
-            AND content ->> '$.type' IN (:types)`,
+            AND type IN (:types)`,
         {
             types: [OwidGdocType.Author],
         }
@@ -580,4 +568,37 @@ export async function getAllGdocIndexItemsOrderedByUpdatedAt(
             tags: groupedTags[gdoc.id] ? groupedTags[gdoc.id] : null,
         })
     )
+}
+
+export async function addImagesToContentGraph(
+    trx: KnexReadWriteTransaction,
+    gdoc: GdocPost | GdocDataInsight | GdocHomepage | GdocAuthor
+): Promise<void> {
+    const id = gdoc.id
+    // Deleting and recreating these is simpler than tracking orphans over the next code block
+    await trx.table(PostsGdocsXImagesTableName).where({ gdocId: id }).delete()
+    const filenames = gdoc.filenames
+
+    // Includes fragments so that images in data pages are
+    // synced to S3 and ultimately baked in bakeDriveImages().
+    if (filenames.length && gdoc.published) {
+        const images = await getImageMetadataByFilenames(trx, filenames)
+        const gdocXImagesToInsert: DbInsertPostGdocXImage[] = []
+        for (const image of Object.values(images)) {
+            gdocXImagesToInsert.push({
+                gdocId: gdoc.id,
+                imageId: image.id,
+            })
+        }
+        try {
+            await trx
+                .table(PostsGdocsXImagesTableName)
+                .insert(gdocXImagesToInsert)
+        } catch (e) {
+            console.error(
+                `Error tracking image references with Google ID ${gdoc.id}`,
+                e
+            )
+        }
+    }
 }

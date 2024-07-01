@@ -1,4 +1,3 @@
-import { WORDPRESS_URL } from "../settings/serverSettings.js"
 import React from "react"
 import { Head } from "./Head.js"
 import { CitationMeta } from "./CitationMeta.js"
@@ -388,7 +387,7 @@ export const LongFormPage = (props: {
                                                         </p>
                                                         <p>
                                                             All of{" "}
-                                                            <a href="/how-to-use-our-world-in-data#how-to-embed-interactive-charts-in-your-article">
+                                                            <a href="/faqs#how-can-i-embed-one-of-your-interactive-charts-in-my-website">
                                                                 our charts can
                                                                 be embedded
                                                             </a>{" "}
@@ -405,37 +404,6 @@ export const LongFormPage = (props: {
                         </div>
                     </article>
                 </main>
-                <div id="wpadminbar" style={{ display: "none" }}>
-                    <div
-                        className="quicklinks"
-                        id="wp-toolbar"
-                        role="navigation"
-                        aria-label="Toolbar"
-                    >
-                        <ul
-                            id="wp-admin-bar-root-default"
-                            className="ab-top-menu"
-                        >
-                            <li id="wp-admin-bar-site-name" className="menupop">
-                                <a
-                                    className="ab-item"
-                                    aria-haspopup="true"
-                                    href={`${WORDPRESS_URL}/wp/wp-admin`}
-                                >
-                                    Wordpress
-                                </a>
-                            </li>{" "}
-                            <li id="wp-admin-bar-edit">
-                                <a
-                                    className="ab-item"
-                                    href={formatWordpressEditLink(post.id)}
-                                >
-                                    Edit Page
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
                 <SiteFooter
                     hideDonate={formattingOptions.hideDonateFooter}
                     baseUrl={baseUrl}
@@ -454,15 +422,10 @@ export const LongFormPage = (props: {
                             pageTitle,
                             // hideSubheadings: true
                         })})
-                        runRelatedCharts(${JSON.stringify(post.relatedCharts)})
                         `,
                     }}
                 />
             </body>
         </html>
     )
-}
-
-export const formatWordpressEditLink = (postId: number) => {
-    return `${WORDPRESS_URL}/wp/wp-admin/post.php?post=${postId}&action=edit`
 }

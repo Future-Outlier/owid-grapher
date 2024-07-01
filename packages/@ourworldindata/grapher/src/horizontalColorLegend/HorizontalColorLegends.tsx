@@ -15,6 +15,7 @@ import {
     Color,
     HorizontalAlign,
     VerticalAlign,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { TextWrap } from "@ourworldindata/components"
 import {
@@ -49,6 +50,7 @@ interface CategoricalMark {
     x: number
     y: number
     rectSize: number
+    width: number
     label: {
         text: string
         bounds: Bounds
@@ -540,7 +542,7 @@ export class HorizontalNumericColorLegend extends HorizontalColorLegend {
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const {
             manager,
             numericLabels,
@@ -555,7 +557,11 @@ export class HorizontalNumericColorLegend extends HorizontalColorLegend {
         const bottomY = this.numericLegendY + height
 
         return (
-            <g ref={this.base} className="numericColorLegend">
+            <g
+                ref={this.base}
+                id={makeIdForHumanConsumption("numeric-color-legend")}
+                className="numericColorLegend"
+            >
                 {numericLabels.map((label, index) => (
                     <line
                         key={index}
@@ -730,6 +736,7 @@ export class HorizontalCategoricalColorLegend extends HorizontalColorLegend {
             marks.push({
                 x: markX,
                 y: markY,
+                width: markWidth,
                 rectSize,
                 label,
                 bin,
@@ -781,87 +788,87 @@ export class HorizontalCategoricalColorLegend extends HorizontalColorLegend {
         return max(this.marks.map((mark) => mark.y + mark.rectSize)) ?? 0
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { manager, marks } = this
         const { activeColors, focusColors } = manager
 
         return (
-            <g>
-                <g className="categoricalColorLegend">
-                    {marks.map((mark, index) => {
-                        const isActive = activeColors?.includes(mark.bin.color)
-                        const isFocus = focusColors?.includes(mark.bin.color)
+            <g
+                id={makeIdForHumanConsumption("categorical-color-legend")}
+                className="categoricalColorLegend"
+            >
+                {marks.map((mark, index) => {
+                    const isActive = activeColors?.includes(mark.bin.color)
+                    const isFocus = focusColors?.includes(mark.bin.color)
 
-                        const fill = mark.bin.patternRef
-                            ? `url(#${mark.bin.patternRef})`
-                            : mark.bin.color
+                    const fill = mark.bin.patternRef
+                        ? `url(#${mark.bin.patternRef})`
+                        : mark.bin.color
 
-                        return (
-                            <g
-                                key={index}
-                                onMouseOver={(): void =>
-                                    manager.onLegendMouseOver
-                                        ? manager.onLegendMouseOver(mark.bin)
-                                        : undefined
+                    return (
+                        <g
+                            id={makeIdForHumanConsumption(
+                                "mark",
+                                mark.label.text
+                            )}
+                            key={index}
+                            onMouseOver={(): void =>
+                                manager.onLegendMouseOver
+                                    ? manager.onLegendMouseOver(mark.bin)
+                                    : undefined
+                            }
+                            onMouseLeave={(): void =>
+                                manager.onLegendMouseLeave
+                                    ? manager.onLegendMouseLeave()
+                                    : undefined
+                            }
+                            onClick={(): void =>
+                                manager.onLegendClick
+                                    ? manager.onLegendClick(mark.bin)
+                                    : undefined
+                            }
+                            style={{ cursor: "default" }}
+                        >
+                            {/* for hover interaction */}
+                            <rect
+                                x={this.legendX + mark.x}
+                                y={this.categoryLegendY + mark.y}
+                                height={mark.rectSize}
+                                width={
+                                    mark.width + SPACE_BETWEEN_CATEGORICAL_BINS
                                 }
-                                onMouseLeave={(): void =>
-                                    manager.onLegendMouseLeave
-                                        ? manager.onLegendMouseLeave()
-                                        : undefined
+                                fill="#fff"
+                                opacity={0}
+                            />
+                            <rect
+                                x={this.legendX + mark.x}
+                                y={this.categoryLegendY + mark.y}
+                                width={mark.rectSize}
+                                height={mark.rectSize}
+                                fill={
+                                    isActive || activeColors === undefined
+                                        ? fill
+                                        : "#ccc"
                                 }
-                                onClick={(): void =>
-                                    manager.onLegendClick
-                                        ? manager.onLegendClick(mark.bin)
-                                        : undefined
-                                }
-                                style={{ cursor: "default" }}
+                                stroke={manager.categoricalBinStroke}
+                                strokeWidth={0.4}
+                                opacity={manager.legendOpacity} // defaults to undefined which removes the prop
+                            />
+                            <text
+                                x={this.legendX + mark.label.bounds.x}
+                                y={this.categoryLegendY + mark.label.bounds.y}
+                                // we can't use dominant-baseline to do proper alignment since our svg-to-png library Sharp
+                                // doesn't support that (https://github.com/lovell/sharp/issues/1996), so we'll have to make
+                                // do with some rough positioning.
+                                dy={dyFromAlign(VerticalAlign.middle)}
+                                fontSize={mark.label.fontSize}
+                                fontWeight={isFocus ? "bold" : undefined}
                             >
-                                {/* for hover interaction */}
-                                <rect
-                                    x={this.legendX + mark.x}
-                                    y={this.categoryLegendY + mark.y}
-                                    height={mark.rectSize}
-                                    width={
-                                        mark.label.bounds.width +
-                                        mark.label.bounds.x -
-                                        mark.x
-                                    }
-                                    fill="#fff"
-                                    opacity={0}
-                                />
-                                <rect
-                                    x={this.legendX + mark.x}
-                                    y={this.categoryLegendY + mark.y}
-                                    width={mark.rectSize}
-                                    height={mark.rectSize}
-                                    fill={
-                                        isActive || activeColors === undefined
-                                            ? fill
-                                            : "#ccc"
-                                    }
-                                    stroke={manager.categoricalBinStroke}
-                                    strokeWidth={0.4}
-                                    opacity={manager.legendOpacity} // defaults to undefined which removes the prop
-                                />
-                                <text
-                                    x={this.legendX + mark.label.bounds.x}
-                                    y={
-                                        this.categoryLegendY +
-                                        mark.label.bounds.y
-                                    }
-                                    // we can't use dominant-baseline to do proper alignment since our svg-to-png library Sharp
-                                    // doesn't support that (https://github.com/lovell/sharp/issues/1996), so we'll have to make
-                                    // do with some rough positioning.
-                                    dy={dyFromAlign(VerticalAlign.middle)}
-                                    fontSize={mark.label.fontSize}
-                                    fontWeight={isFocus ? "bold" : undefined}
-                                >
-                                    {mark.label.text}
-                                </text>
-                            </g>
-                        )
-                    })}
-                </g>
+                                {mark.label.text}
+                            </text>
+                        </g>
+                    )
+                })}
             </g>
         )
     }

@@ -14,6 +14,7 @@ import {
     first,
     isEmpty,
     guid,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { computed, action, observable } from "mobx"
 import { observer } from "mobx-react"
@@ -75,7 +76,11 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
     @computed private get isLayerMode(): boolean {
         return (
             this.focusedSeriesNames.length > 0 ||
-            this.hoveredSeriesNames.length > 0
+            this.hoveredSeriesNames.length > 0 ||
+            // if the user has selected entities that are not in the chart,
+            // we want to move all entities into the background
+            (this.props.focusedSeriesNames.length > 0 &&
+                this.focusedSeriesNames.length === 0)
         )
     }
 
@@ -390,7 +395,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
         return this.renderSeries.filter((series) => !!series.isForeground)
     }
 
-    private renderBackgroundSeries(): JSX.Element[] {
+    private renderBackgroundSeries(): React.ReactElement[] {
         const { backgroundSeries, isLayerMode, hideConnectedScatterLines } =
             this
 
@@ -407,7 +412,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
               ))
     }
 
-    private renderBackgroundLabels(): JSX.Element {
+    private renderBackgroundLabels(): React.ReactElement {
         const { isLayerMode } = this
         return (
             <g
@@ -421,6 +426,10 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
                             getElementWithHalo(
                                 series.displayKey + "-endLabel",
                                 <text
+                                    id={makeIdForHumanConsumption(
+                                        "scatter-label",
+                                        label.text
+                                    )}
                                     x={label.bounds.x.toFixed(2)}
                                     y={(
                                         label.bounds.y + label.bounds.height
@@ -443,7 +452,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
         return guid()
     }
 
-    private renderForegroundSeries(): JSX.Element[] {
+    private renderForegroundSeries(): React.ReactElement[] {
         const { isSubtleForeground, hideConnectedScatterLines } = this
         return this.foregroundSeries.map((series) => {
             const lastPoint = last(series.points)!
@@ -478,7 +487,14 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
             )
             if (series.offsetVector.x < 0) rotation = -rotation
             return (
-                <g key={series.displayKey} className={series.displayKey}>
+                <g
+                    id={makeIdForHumanConsumption(
+                        "time-scatter",
+                        series.displayKey
+                    )}
+                    key={series.displayKey}
+                    className={series.displayKey}
+                >
                     {!hideConnectedScatterLines && (
                         <MultiColorPolyline
                             points={series.points.map((point) => ({
@@ -535,7 +551,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
         })
     }
 
-    private renderForegroundLabels(): JSX.Element[][] {
+    private renderForegroundLabels(): React.ReactElement[][] {
         return this.foregroundSeries.map((series) => {
             return series.allLabels
                 .filter((label) => !label.isHidden)
@@ -543,6 +559,10 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
                     getElementWithHalo(
                         `${series.displayKey}-label-${index}`,
                         <text
+                            id={makeIdForHumanConsumption(
+                                "scatter-label",
+                                series.displayKey
+                            )}
                             x={label.bounds.x.toFixed(2)}
                             y={(label.bounds.y + label.bounds.height).toFixed(
                                 2
@@ -591,7 +611,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
         if (this.animSelection) this.animSelection.interrupt()
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { bounds, renderSeries, renderUid } = this
         const clipBounds = bounds.pad(-10)
 
@@ -606,6 +626,7 @@ export class ScatterPointsWithLabels extends React.Component<ScatterPointsWithLa
         return (
             <g
                 ref={this.base}
+                id={makeIdForHumanConsumption("scatter-points")}
                 className="PointsWithLabels clickable"
                 clipPath={`url(#scatterBounds-${renderUid})`}
                 onMouseMove={this.onMouseMove}

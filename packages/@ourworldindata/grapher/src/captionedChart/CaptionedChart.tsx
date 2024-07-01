@@ -6,6 +6,7 @@ import {
     DEFAULT_BOUNDS,
     exposeInstanceOnWindow,
     isEmpty,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { MarkdownTextWrap } from "@ourworldindata/components"
 import { Header, StaticHeader } from "../header/Header"
@@ -26,15 +27,6 @@ import { LoadingIndicator } from "../loadingIndicator/LoadingIndicator"
 import { FacetChart } from "../facetChart/FacetChart"
 import { faExternalLinkAlt } from "@fortawesome/free-solid-svg-icons"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
-import {
-    EntitySelectionToggle,
-    EntitySelectionManager,
-} from "../controls/EntitySelectionToggle"
-import {
-    MapProjectionMenu,
-    MapProjectionMenuManager,
-} from "../controls/MapProjectionMenu"
-import { SettingsMenu, SettingsMenuManager } from "../controls/SettingsMenu"
 import { FooterManager } from "../footer/FooterManager"
 import { HeaderManager } from "../header/HeaderManager"
 import { SelectionArray } from "../selection/SelectionArray"
@@ -45,17 +37,16 @@ import {
     GrapherTabOption,
     RelatedQuestionsConfig,
 } from "@ourworldindata/types"
-import { AxisConfig } from "../axis/AxisConfig"
 import { DataTable, DataTableManager } from "../dataTable/DataTable"
-import {
-    ContentSwitchers,
-    ContentSwitchersManager,
-} from "../controls/ContentSwitchers"
 import {
     TimelineComponent,
     TIMELINE_HEIGHT,
 } from "../timeline/TimelineComponent"
 import { TimelineController } from "../timeline/TimelineController"
+import {
+    ControlsRow,
+    ControlsRowManager,
+} from "../controls/controlsRow/ControlsRow"
 
 export interface CaptionedChartManager
     extends ChartManager,
@@ -63,38 +54,44 @@ export interface CaptionedChartManager
         FooterManager,
         HeaderManager,
         DataTableManager,
-        ContentSwitchersManager,
-        EntitySelectionManager,
-        MapProjectionMenuManager,
-        SettingsMenuManager {
+        ControlsRowManager {
     containerElement?: HTMLDivElement
-    tabBounds?: Bounds
-    staticBounds?: Bounds
-    staticBoundsWithDetails?: Bounds
-    fontSize?: number
     bakedGrapherURL?: string
-    tab?: GrapherTabOption
-    type: ChartTypeName
-    yAxis: AxisConfig
-    xAxis: AxisConfig
-    typeExceptWhenLineChartAndSingleTimeThenWillBeBarChart?: ChartTypeName
     isReady?: boolean
     whatAreWeWaitingFor?: string
-    entityType?: string
-    entityTypePlural?: string
-    shouldIncludeDetailsInStaticExport?: boolean
-    detailRenderers: MarkdownTextWrap[]
-    isOnMapTab?: boolean
-    isOnTableTab?: boolean
-    hasTimeline?: boolean
-    timelineController?: TimelineController
-    hasRelatedQuestion?: boolean
-    isRelatedQuestionTargetDifferentFromCurrentPage?: boolean
-    relatedQuestions?: RelatedQuestionsConfig[]
+
+    // bounds
+    captionedChartBounds?: Bounds
+    sidePanelBounds?: Bounds
+    staticBounds?: Bounds
+    staticBoundsWithDetails?: Bounds
+
+    // layout
     isSmall?: boolean
     isMedium?: boolean
     framePaddingHorizontal?: number
     framePaddingVertical?: number
+    fontSize?: number
+
+    // state
+    tab?: GrapherTabOption
+    isOnMapTab?: boolean
+    isOnTableTab?: boolean
+    type: ChartTypeName
+    typeExceptWhenLineChartAndSingleTimeThenWillBeBarChart?: ChartTypeName
+    showEntitySelectionToggle?: boolean
+
+    // timeline
+    hasTimeline?: boolean
+    timelineController?: TimelineController
+
+    // details on demand
+    shouldIncludeDetailsInStaticExport?: boolean
+    detailRenderers: MarkdownTextWrap[]
+
+    // related question
+    relatedQuestions?: RelatedQuestionsConfig[]
+    showRelatedQuestion?: boolean
 }
 
 interface CaptionedChartProps {
@@ -144,10 +141,6 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         return this.manager.isMedium ? 8 : 16
     }
 
-    @computed protected get relatedQuestionHeight(): number {
-        return this.manager.isMedium ? 24 : 28
-    }
-
     @computed protected get header(): Header {
         return new Header({
             manager: this.manager,
@@ -162,7 +155,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         })
     }
 
-    protected get patterns(): JSX.Element {
+    protected get patterns(): React.ReactElement {
         return (
             <defs>
                 <pattern
@@ -181,7 +174,9 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
 
     @computed protected get bounds(): Bounds {
         const bounds =
-            this.props.bounds ?? this.manager.tabBounds ?? DEFAULT_BOUNDS
+            this.props.bounds ??
+            this.manager.captionedChartBounds ??
+            DEFAULT_BOUNDS
         // the padding ensures grapher's frame is not cut off
         return bounds.padRight(2).padBottom(2)
     }
@@ -200,22 +195,6 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         return !this.manager.isOnMapTab && hasStrategy
     }
 
-    @computed get showContentSwitchers(): boolean {
-        return (this.manager.availableTabs?.length ?? 0) > 1
-    }
-
-    @computed get showControls(): boolean {
-        return (
-            SettingsMenu.shouldShow(this.manager) ||
-            EntitySelectionToggle.shouldShow(this.manager) ||
-            MapProjectionMenu.shouldShow(this.manager)
-        )
-    }
-
-    @computed get showControlsRow(): boolean {
-        return this.showContentSwitchers || this.showControls
-    }
-
     @computed get chartTypeName(): ChartTypeName {
         const { manager } = this
         return this.manager.isOnMapTab
@@ -225,7 +204,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
                   ChartTypeName.LineChart
     }
 
-    renderChart(): JSX.Element {
+    renderChart(): React.ReactElement {
         const { manager } = this
         const bounds = this.boundsForChartArea
         const ChartClass =
@@ -258,51 +237,42 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         return this.manager.selection
     }
 
-    @computed get showRelatedQuestion(): boolean {
+    @computed private get showRelatedQuestion(): boolean {
+        return !!this.manager.showRelatedQuestion
+    }
+
+    @computed get relatedQuestionHeight(): number {
+        if (!this.showRelatedQuestion) return 0
+        return this.manager.isMedium ? 24 : 28
+    }
+
+    @computed private get showControlsRow(): boolean {
+        return ControlsRow.shouldShow(this.manager)
+    }
+
+    private renderControlsRow(): React.ReactElement {
         return (
-            !!this.manager.relatedQuestions &&
-            !!this.manager.hasRelatedQuestion &&
-            !!this.manager.isRelatedQuestionTargetDifferentFromCurrentPage
+            <ControlsRow
+                manager={this.manager}
+                maxWidth={this.maxWidth}
+                settingsMenuTop={
+                    this.framePaddingVertical +
+                    this.header.height +
+                    this.verticalPadding +
+                    CONTROLS_ROW_HEIGHT +
+                    4 // margin between button and menu
+                }
+            />
         )
     }
 
-    private renderControlsRow(): JSX.Element {
-        const { showContentSwitchers } = this
-        return (
-            <nav
-                className="controlsRow"
-                style={{ padding: `0 ${this.framePaddingHorizontal}px` }}
-            >
-                <div>
-                    {showContentSwitchers && (
-                        <ContentSwitchers manager={this.manager} />
-                    )}
-                </div>
-                <div className="chart-controls">
-                    <EntitySelectionToggle manager={this.manager} />
-                    <SettingsMenu
-                        manager={this.manager}
-                        top={
-                            this.framePaddingVertical +
-                            this.header.height +
-                            this.verticalPadding +
-                            CONTROLS_ROW_HEIGHT +
-                            4 // margin between button and menu
-                        }
-                        bottom={this.framePaddingVertical}
-                    />
-                    <MapProjectionMenu manager={this.manager} />
-                </div>
-            </nav>
-        )
-    }
-
-    private renderRelatedQuestion(): JSX.Element {
+    private renderRelatedQuestion(): React.ReactElement {
         const { relatedQuestions } = this.manager
         return (
             <div
                 className="relatedQuestion"
                 style={{
+                    width: this.bounds.width,
                     height: this.relatedQuestionHeight,
                     padding: `0 ${this.framePaddingHorizontal}px`,
                 }}
@@ -321,7 +291,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         )
     }
 
-    private renderLoadingIndicator(): JSX.Element {
+    private renderLoadingIndicator(): React.ReactElement {
         return (
             <foreignObject {...this.boundsForChartArea.toProps()}>
                 <LoadingIndicator title={this.manager.whatAreWeWaitingFor} />
@@ -329,7 +299,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         )
     }
 
-    private renderDataTable(): JSX.Element {
+    private renderDataTable(): React.ReactElement {
         const { boundsForChartArea } = this
         const containerStyle: React.CSSProperties = {
             position: "relative",
@@ -351,7 +321,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         )
     }
 
-    private renderChartOrMap(): JSX.Element {
+    private renderChartOrMap(): React.ReactElement {
         const { bounds, chartHeight } = this
         const { width } = bounds
 
@@ -378,7 +348,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         )
     }
 
-    private renderTimeline(): JSX.Element {
+    private renderTimeline(): React.ReactElement {
         return (
             <TimelineComponent
                 timelineController={this.manager.timelineController!}
@@ -417,7 +387,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
     }
 
     // make sure to keep this.chartHeight in sync if you edit the render function
-    render(): JSX.Element {
+    render(): React.ReactElement {
         // CaptionedChart renders at the very least a header, a chart, and a footer.
         // Interactive charts also have controls above the chart area and a timeline below it.
         // Some charts have a related question below the footer.
@@ -433,7 +403,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
         //    #5 Footer
         //    #6 [Related question]
         return (
-            <>
+            <div className="CaptionedChart">
                 {/* #1 Header */}
                 <Header manager={this.manager} maxWidth={this.maxWidth} />
                 <VerticalSpace height={this.verticalPadding} />
@@ -461,7 +431,7 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
 
                 {/* #6 [Related question] */}
                 {this.showRelatedQuestion && this.renderRelatedQuestion()}
-            </>
+            </div>
         )
     }
 
@@ -532,12 +502,13 @@ export class StaticCaptionedChart extends CaptionedChart {
             .padTop(this.manager.isOnMapTab ? 0 : this.verticalPadding)
     }
 
-    renderSVGDetails(): JSX.Element {
+    renderSVGDetails(): React.ReactElement {
         let yOffset = 0
         let previousOffset = 0
         return (
             <>
                 <line
+                    id={makeIdForHumanConsumption("separator-line")}
                     x1={this.framePaddingHorizontal}
                     y1={this.bounds.height}
                     x2={
@@ -548,6 +519,7 @@ export class StaticCaptionedChart extends CaptionedChart {
                     stroke="#e7e7e7"
                 ></line>
                 <g
+                    id={makeIdForHumanConsumption("details")}
                     transform={`translate(15, ${
                         // + padding below the grey line
                         this.bounds.height + this.framePaddingVertical
@@ -565,7 +537,7 @@ export class StaticCaptionedChart extends CaptionedChart {
         )
     }
 
-    @computed private get fonts(): JSX.Element {
+    @computed private get fonts(): React.ReactElement {
         let origin = ""
         try {
             origin = new URL(this.manager.bakedGrapherURL!).origin
@@ -578,7 +550,7 @@ export class StaticCaptionedChart extends CaptionedChart {
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { paddedBounds, manager, maxWidth } = this
 
         const bounds = this.manager.staticBoundsWithDetails ?? this.bounds
@@ -610,7 +582,10 @@ export class StaticCaptionedChart extends CaptionedChart {
                     targetX={paddedBounds.x}
                     targetY={paddedBounds.y}
                 />
-                <g style={{ pointerEvents: "none" }}>
+                <g
+                    id={makeIdForHumanConsumption("chart-area")}
+                    style={{ pointerEvents: "none" }}
+                >
                     {/*
                      We cannot render a table to svg, but would rather display nothing at all to avoid issues.
                      See https://github.com/owid/owid-grapher/issues/3283
@@ -632,7 +607,7 @@ export class StaticCaptionedChart extends CaptionedChart {
 // Although a bit unconventional, adding vertical space as a <div />
 // makes margin collapsing impossible and makes it easier to track the
 // space available for the chart area (see the CaptionedChart's `chartHeight` method)
-function VerticalSpace({ height }: { height: number }): JSX.Element {
+function VerticalSpace({ height }: { height: number }): React.ReactElement {
     return (
         <div
             className="VerticalSpace"

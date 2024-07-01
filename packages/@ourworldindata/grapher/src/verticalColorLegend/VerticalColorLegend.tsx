@@ -1,5 +1,5 @@
 import React from "react"
-import { sum, max } from "@ourworldindata/utils"
+import { sum, max, makeIdForHumanConsumption } from "@ourworldindata/utils"
 import { TextWrap } from "@ourworldindata/components"
 import { computed } from "mobx"
 import { observer } from "mobx-react"
@@ -117,7 +117,7 @@ export class VerticalColorLegend extends React.Component<{
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const {
             title,
             titleHeight,
@@ -145,6 +145,7 @@ export class VerticalColorLegend extends React.Component<{
                 {title &&
                     title.render(x, y, { textProps: { fontWeight: 700 } })}
                 <g
+                    id={makeIdForHumanConsumption("vertical-color-legend")}
                     className="ScatterColorLegend clickable"
                     style={{ cursor: "pointer" }}
                 >
@@ -160,9 +161,22 @@ export class VerticalColorLegend extends React.Component<{
                             ? (): void => onLegendClick(series.color)
                             : undefined
 
+                        const textX = x + rectSize + rectPadding
+                        const textY = y + markOffset
+
+                        const renderedTextPosition =
+                            series.textWrap.getPositionForSvgRendering(
+                                textX,
+                                textY
+                            )
+
                         const result = (
                             <g
                                 key={index}
+                                id={makeIdForHumanConsumption(
+                                    "mark",
+                                    series.textWrap.text
+                                )}
                                 className="legendMark"
                                 onMouseOver={mouseOver}
                                 onMouseLeave={mouseLeave}
@@ -179,18 +193,14 @@ export class VerticalColorLegend extends React.Component<{
                                 />
                                 <rect
                                     x={x}
-                                    y={
-                                        y +
-                                        markOffset +
-                                        (series.height - rectSize) / 2
-                                    }
+                                    y={renderedTextPosition[1] - rectSize}
                                     width={rectSize}
                                     height={rectSize}
                                     fill={isActive ? series.color : undefined}
                                 />
                                 {series.textWrap.render(
-                                    x + rectSize + rectPadding,
-                                    y + markOffset,
+                                    textX,
+                                    textY,
                                     isFocus
                                         ? {
                                               textProps: {

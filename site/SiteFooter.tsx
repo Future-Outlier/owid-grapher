@@ -2,7 +2,7 @@ import React from "react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
 import { faAngleRight } from "@fortawesome/free-solid-svg-icons"
 import { SiteFooterContext } from "@ourworldindata/utils"
-import { VITE_ASSET_SITE_ENTRY, viteAssets } from "./viteUtils.js"
+import { viteAssetsForSite } from "./viteUtils.js"
 
 interface SiteFooterProps {
     hideDonate?: boolean
@@ -89,10 +89,10 @@ export const SiteFooter = (props: SiteFooterProps) => (
                             </li>
                             <li>
                                 <a
-                                    href="/about/how-to-use-our-world-in-data"
+                                    href="/faqs"
                                     data-track-note="footer_navigation"
                                 >
-                                    How to use
+                                    FAQs
                                 </a>
                             </li>
                             <li>
@@ -300,7 +300,7 @@ export const SiteFooter = (props: SiteFooterProps) => (
                 </div>
             </div>
             <div className="site-tools" />
-            {viteAssets(VITE_ASSET_SITE_ENTRY).forFooter}
+            {viteAssetsForSite().forFooter}
             <script
                 type="module"
                 dangerouslySetInnerHTML={{

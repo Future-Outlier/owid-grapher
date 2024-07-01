@@ -19,10 +19,15 @@ import {
     HorizontalAlign,
     EntityName,
     getRelativeMouse,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { action, computed, observable } from "mobx"
 import { observer } from "mobx-react"
-import { FacetStrategy, SeriesName } from "@ourworldindata/types"
+import {
+    ColorSchemeName,
+    FacetStrategy,
+    SeriesName,
+} from "@ourworldindata/types"
 import {
     BASE_FONT_SIZE,
     GRAPHER_AREA_OPACITY_DEFAULT,
@@ -45,7 +50,13 @@ import {
     withMissingValuesAsZeroes,
 } from "../stackedCharts/StackedUtils"
 import { ChartManager } from "../chart/ChartManager"
-import { Tooltip, TooltipState, TooltipTable } from "../tooltip/Tooltip"
+import { TooltipFooterIcon } from "../tooltip/TooltipProps.js"
+import {
+    Tooltip,
+    TooltipState,
+    TooltipTable,
+    makeTooltipRoundingNotice,
+} from "../tooltip/Tooltip"
 import { StackedPoint, StackedSeries } from "./StackedConstants"
 import { ColorSchemes } from "../color/ColorSchemes"
 import {
@@ -124,6 +135,9 @@ export class StackedDiscreteBarChart
         // TODO: remove this filter once we don't have mixed type columns in datasets
         table = table.replaceNonNumericCellsWithErrorValues(this.yColumnSlugs)
 
+        // stacked discrete bar charts don't support negative values
+        table = table.replaceNegativeCellsWithErrorValues(this.yColumnSlugs)
+
         table = table.dropRowsWithErrorValuesForAllColumns(this.yColumnSlugs)
 
         this.yColumnSlugs.forEach((slug) => {
@@ -170,7 +184,7 @@ export class StackedDiscreteBarChart
     }
 
     @computed private get showLegend(): boolean {
-        return !this.manager.hideLegend
+        return !!this.manager.showLegend
     }
 
     @computed private get barCount(): number {
@@ -209,7 +223,7 @@ export class StackedDiscreteBarChart
 
     // Account for the width of the legend
     @computed private get labelWidth(): number {
-        return max(this.labelledItems.map((d) => d.label.width)) ?? 0
+        return max(this.sizedItems.map((d) => d.label.width)) ?? 0
     }
 
     @computed get showTotalValueLabel(): boolean {
@@ -224,7 +238,7 @@ export class StackedDiscreteBarChart
     @computed private get totalValueLabelWidth(): number {
         if (!this.showTotalValueLabel) return 0
 
-        const labels = this.labelledItems.map((d) =>
+        const labels = this.sizedItems.map((d) =>
             this.formatValueForLabel(d.totalValue)
         )
         const longestLabel = maxBy(labels, (l) => l.length)
@@ -323,24 +337,33 @@ export class StackedDiscreteBarChart
         return items
     }
 
-    @computed get labelledItems(): readonly Item[] {
+    @computed get sizedItems(): readonly Item[] {
+        // can't use `this.barHeight` due to a circular dependency
+        const barHeight = this.approximateBarHeight
+
         return this.items.map((item) => {
+            // make sure we're dealing with a single-line text fragment
+            const entityName = item.entityName.replace(/\n/g, " ").trim()
+
             let label = new TextWrap({
-                text: item.entityName,
+                text: entityName,
                 maxWidth: this.boundsWithoutLegend.width * 0.3,
                 ...this.labelStyle,
             })
 
-            // can't use `this.barHeight` due to a circular dependency
-            const barHeight = this.approximateBarHeight
-
             // prevent labels from being taller than the bar
-            while (label.height > barHeight && label.lines.length > 1) {
+            let step = 0
+            while (
+                label.height > barHeight &&
+                label.lines.length > 1 &&
+                step < 10 // safety net
+            ) {
                 label = new TextWrap({
-                    text: item.entityName,
+                    text: entityName,
                     maxWidth: label.maxWidth + 20,
                     ...this.labelStyle,
                 })
+                step += 1
             }
 
             return { ...item, label }
@@ -372,7 +395,7 @@ export class StackedDiscreteBarChart
                     return lastPoint.valueOffset + lastPoint.value
                 }
         }
-        const sortedItems = sortBy(this.labelledItems, sortByFunc)
+        const sortedItems = sortBy(this.sizedItems, sortByFunc)
         const sortOrder = this.sortConfig.sortOrder ?? SortOrder.desc
         if (sortOrder === SortOrder.desc) sortedItems.reverse()
 
@@ -515,7 +538,7 @@ export class StackedDiscreteBarChart
         this.tooltipState.target = null
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -552,7 +575,7 @@ export class StackedDiscreteBarChart
         }: {
             data: PlacedItem
             state: { translateY: number }
-        }): JSX.Element => {
+        }): React.ReactElement => {
             const { entityName, label, bars, totalValue } = data
 
             const totalLabel = this.formatValueForLabel(totalValue)
@@ -561,6 +584,7 @@ export class StackedDiscreteBarChart
             return (
                 <g
                     key={entityName}
+                    id={makeIdForHumanConsumption("bar", entityName)}
                     className="bar"
                     transform={`translate(0, ${state.translateY})`}
                 >
@@ -593,6 +617,10 @@ export class StackedDiscreteBarChart
                         getElementWithHalo(
                             entityName + "-value-label",
                             <text
+                                id={makeIdForHumanConsumption(
+                                    "total",
+                                    entityName
+                                )}
                                 transform={`translate(${
                                     yAxis.place(totalValue) + labelToBarPadding
                                 }, 0)`}
@@ -647,7 +675,7 @@ export class StackedDiscreteBarChart
                     start={handlePositionUpdate}
                     update={handlePositionUpdate}
                 >
-                    {(nodes): JSX.Element => (
+                    {(nodes): React.ReactElement => (
                         <g>{nodes.map((node) => renderRow(node))}</g>
                     )}
                 </NodeGroup>
@@ -668,7 +696,7 @@ export class StackedDiscreteBarChart
         showLabelInsideBar: boolean
         onMouseEnter: (entityName: string, seriesName?: string) => void
         onMouseLeave: () => void
-    }): JSX.Element {
+    }): React.ReactElement {
         const { entity, bar, chartContext } = props
         const { yAxis, formatValueForLabel, focusSeriesName, barHeight } =
             chartContext
@@ -696,6 +724,7 @@ export class StackedDiscreteBarChart
 
         return (
             <g
+                id={makeIdForHumanConsumption("stacked-bar", bar.seriesName)}
                 onMouseEnter={(): void =>
                     props?.onMouseEnter(entity, bar.seriesName)
                 }
@@ -738,7 +767,7 @@ export class StackedDiscreteBarChart
         )
     }
 
-    @computed private get Tooltip(): JSX.Element | undefined {
+    @computed private get Tooltip(): React.ReactElement | undefined {
         const {
                 tooltipState: { target, position, fading },
                 formatColumn: { unit, shortUnit },
@@ -751,7 +780,22 @@ export class StackedDiscreteBarChart
             hasNotice = item?.bars.some(
                 ({ point }) => !point.fake && point.time !== targetTime
             ),
-            notice = hasNotice ? timeColumn.formatValue(targetTime) : undefined
+            targetNotice = hasNotice
+                ? timeColumn.formatValue(targetTime)
+                : undefined
+
+        const toleranceNotice = targetNotice
+            ? { icon: TooltipFooterIcon.notice, text: targetNotice }
+            : undefined
+        const roundingNotice = this.formatColumn.roundsToSignificantFigures
+            ? {
+                  icon: TooltipFooterIcon.none,
+                  text: makeTooltipRoundingNotice([
+                      this.formatColumn.numSignificantFigures,
+                  ]),
+              }
+            : undefined
+        const footer = excludeUndefined([toleranceNotice, roundingNotice])
 
         return (
             target &&
@@ -767,8 +811,7 @@ export class StackedDiscreteBarChart
                     title={target.entityName}
                     subtitle={unit !== shortUnit ? unit : undefined}
                     subtitleFormat="unit"
-                    footer={notice}
-                    footerFormat="notice"
+                    footer={footer}
                     dissolve={fading}
                 >
                     <TooltipTable
@@ -833,8 +876,8 @@ export class StackedDiscreteBarChart
     @computed private get colorScheme(): ColorScheme {
         return (
             (this.manager.baseColorScheme
-                ? ColorSchemes[this.manager.baseColorScheme]
-                : null) ?? ColorSchemes["owid-distinct"]
+                ? ColorSchemes.get(this.manager.baseColorScheme)
+                : null) ?? ColorSchemes.get(ColorSchemeName["owid-distinct"])
         )
     }
 

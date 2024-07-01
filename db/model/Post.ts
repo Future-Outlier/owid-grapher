@@ -30,7 +30,6 @@ import { BAKED_BASE_URL } from "../../settings/clientSettings.js"
 import { BLOG_SLUG } from "../../settings/serverSettings.js"
 import { SiteNavigationStatic } from "../../site/SiteNavigation.js"
 import { decodeHTML } from "entities"
-import { RelatedResearchQueryResult } from "../wpdb"
 import { getAndLoadListedGdocPosts } from "./Gdoc/GdocFactory.js"
 
 export const postsTable = "posts"
@@ -98,6 +97,22 @@ export const setTagsForPost = async (
             `INSERT INTO post_tags (tag_id, post_id) VALUES ?`,
             [tagRows]
         )
+}
+
+export const getPostIdFromSlug = (
+    knex: db.KnexReadonlyTransaction,
+    slug: string
+): Promise<number | undefined> => {
+    return db
+        .knexRawFirst<{ id: number }>(
+            knex,
+            `-- sql
+        SELECT id
+        FROM posts
+        WHERE slug = ?`,
+            [slug]
+        )
+        .then((result) => result?.id)
 }
 
 export const getPostRawBySlug = async (
@@ -363,7 +378,7 @@ export const getWordpressPostReferencesByChartId = async (
                         slug from posts_gdocs pg
                     WHERE
                         pg.slug = p.slug
-                        AND pg.content ->> '$.type' <> 'fragment'
+                        AND pg.type != 'fragment'
                         AND pg.published = 1
                 )
             ORDER BY
@@ -401,9 +416,10 @@ export const getGdocsPostReferencesByChartId = async (
                 )
             WHERE
                 c.id = ?
-                AND pg.content ->> '$.type' NOT IN (
+                AND pg.type NOT IN (
                     '${OwidGdocType.Fragment}',
-                    '${OwidGdocType.AboutPage}'
+                    '${OwidGdocType.AboutPage}',
+                    '${OwidGdocType.DataInsight}'
                 )
                 AND pg.published = 1
             ORDER BY
@@ -443,6 +459,20 @@ export const getPostTags = async (
         .select("tags.id", "tags.name")
         .where({ post_id: postId })
         .join("tags", "tags.id", "=", "post_tags.tag_id")
+}
+
+export interface RelatedResearchQueryResult {
+    linkTargetSlug: string
+    componentType: string
+    chartSlug: string
+    title: string
+    postSlug: string
+    chartId: number
+    authors: string
+    thumbnail: string
+    pageviews: number
+    post_source: string
+    tags: string
 }
 
 export const getRelatedResearchAndWritingForVariable = async (
@@ -546,7 +576,7 @@ export const getRelatedResearchAndWritingForVariable = async (
             AND cd.variableId = ?
             AND cd.property IN ('x', 'y') -- ignore cases where the indicator is size, color etc
             AND p.published = 1
-            AND p.content ->> '$.type' != 'fragment'`,
+            AND p.type != 'fragment'`,
         [variableId]
     )
 
@@ -595,7 +625,7 @@ export const getLatestWorkByAuthor = async (
         WHERE
             pg.content ->> '$.authors' LIKE ?
             AND pg.published = TRUE
-            AND pg.content->>'$.type' = "${OwidGdocType.Article}"
+            AND pg.type = "${OwidGdocType.Article}"
         `,
         [`%${author}%`]
     )

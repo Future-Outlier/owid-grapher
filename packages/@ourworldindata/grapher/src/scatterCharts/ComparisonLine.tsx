@@ -1,5 +1,10 @@
 import { line as d3_line, curveLinear } from "d3-shape"
-import { guid, Bounds, PointVector } from "@ourworldindata/utils"
+import {
+    guid,
+    Bounds,
+    PointVector,
+    makeIdForHumanConsumption,
+} from "@ourworldindata/utils"
 import React from "react"
 import { computed } from "mobx"
 import { observer } from "mobx-react"
@@ -7,11 +12,13 @@ import { DualAxis } from "../axis/Axis"
 import { generateComparisonLinePoints } from "./ComparisonLineGenerator"
 import { getElementWithHalo } from "./Halos"
 import { ComparisonLineConfig } from "@ourworldindata/types"
+import { GRAPHER_FONT_SCALE_10_5 } from "../core/GrapherConstants"
 
 @observer
 export class ComparisonLine extends React.Component<{
     dualAxis: DualAxis
     comparisonLine: ComparisonLineConfig
+    baseFontSize: number
 }> {
     private renderUid = guid()
 
@@ -73,12 +80,15 @@ export class ComparisonLine extends React.Component<{
         }
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { innerBounds } = this.props.dualAxis
         const { linePath, renderUid, placedLabel } = this
 
         return (
-            <g className="comparisonLine">
+            <g
+                id={makeIdForHumanConsumption("comparison-line")}
+                className="comparisonLine"
+            >
                 <defs>
                     <clipPath id={`axisBounds-${renderUid}`}>
                         <rect
@@ -103,7 +113,9 @@ export class ComparisonLine extends React.Component<{
                 {placedLabel && (
                     <text
                         style={{
-                            fontSize: "80%",
+                            fontSize:
+                                GRAPHER_FONT_SCALE_10_5 *
+                                this.props.baseFontSize,
                             opacity: 0.9,
                             textAnchor: "end",
                             fill: "#999",

@@ -3,6 +3,7 @@ import { AxisConfig, AxisManager } from "../axis/AxisConfig"
 import { ChartInterface } from "../chart/ChartInterface"
 import { ChartManager } from "../chart/ChartManager"
 import {
+    ColorSchemeName,
     FacetStrategy,
     MissingDataStrategy,
     SeriesStrategy,
@@ -27,7 +28,6 @@ import {
 import {
     OwidTable,
     CoreColumn,
-    BlankOwidTable,
     isNotErrorValueOrEmptyCell,
 } from "@ourworldindata/core-table"
 import {
@@ -103,15 +103,7 @@ export class AbstractStackedChart
                 })
             }
 
-            const groupedByEntity = table
-                .groupBy(table.entityNameColumn.slug)
-                .map((t: OwidTable) =>
-                    t.dropRowsWithErrorValuesForAnyColumn(this.yColumnSlugs)
-                )
-
-            if (groupedByEntity.length === 0) return BlankOwidTable()
-
-            table = groupedByEntity[0].concat(groupedByEntity.slice(1))
+            table = table.dropRowsWithErrorValuesForAnyColumn(this.yColumnSlugs)
         }
 
         return table
@@ -140,6 +132,7 @@ export class AbstractStackedChart
     @computed get manager(): ChartManager {
         return this.props.manager
     }
+
     @computed get bounds(): Bounds {
         return this.props.bounds ?? DEFAULT_BOUNDS
     }
@@ -152,7 +145,11 @@ export class AbstractStackedChart
         return this.manager.detailsOrderedByReference ?? []
     }
 
-    protected get paddingForLegend(): number {
+    protected get paddingForLegendRight(): number {
+        return 0
+    }
+
+    protected get paddingForLegendTop(): number {
         return 0
     }
 
@@ -206,11 +203,13 @@ export class AbstractStackedChart
             bounds,
             horizontalAxisPart,
             verticalAxisPart,
-            paddingForLegend,
+            paddingForLegendRight,
+            paddingForLegendTop,
         } = this
         return new DualAxis({
             bounds: bounds
-                .padRight(paddingForLegend)
+                .padTop(paddingForLegendTop)
+                .padRight(paddingForLegendRight)
                 // top padding leaves room for tick labels
                 .padTop(6)
                 // bottom padding avoids axis labels to be cut off at some resolutions
@@ -321,8 +320,9 @@ export class AbstractStackedChart
         return new CategoricalColorAssigner({
             colorScheme:
                 (this.manager.baseColorScheme
-                    ? ColorSchemes[this.manager.baseColorScheme]
-                    : null) ?? ColorSchemes.stackedAreaDefault,
+                    ? ColorSchemes.get(this.manager.baseColorScheme)
+                    : null) ??
+                ColorSchemes.get(ColorSchemeName.stackedAreaDefault),
             invertColorScheme: this.manager.invertColorScheme,
             colorMap: this.isEntitySeries
                 ? this.inputTable.entityNameColorIndex
@@ -412,7 +412,7 @@ export class AbstractStackedChart
     }
 
     @computed get externalLegend(): HorizontalColorLegendManager | undefined {
-        if (this.manager.hideLegend) {
+        if (!this.manager.showLegend) {
             const categoricalLegendData = this.series
                 .map(
                     (series, index) =>

@@ -13,8 +13,10 @@ import { DatasetEditPage } from "./DatasetEditPage.js"
 import { VariablesAnnotationPage } from "./VariablesAnnotationPage.js"
 import { SourceEditPage } from "./SourceEditPage.js"
 import { RedirectsIndexPage } from "./RedirectsIndexPage.js"
+import SiteRedirectsIndexPage from "./SiteRedirectsIndexPage"
 import { TagEditPage } from "./TagEditPage.js"
 import { TagsIndexPage } from "./TagsIndexPage.js"
+import { TagGraphPage } from "./TagGraphPage.js"
 import { PostsIndexPage } from "./PostsIndexPage.js"
 import { TestIndexPage } from "./TestIndexPage.js"
 import { NotFoundPage } from "./NotFoundPage.js"
@@ -44,7 +46,7 @@ import { GdocsStoreProvider } from "./GdocsStore.js"
 
 @observer
 class AdminErrorMessage extends React.Component<{ admin: Admin }> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { admin } = this.props
         const error = admin.errorMessage
 
@@ -86,7 +88,7 @@ class AdminErrorMessage extends React.Component<{ admin: Admin }> {
 
 @observer
 class AdminLoader extends React.Component<{ admin: Admin }> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { admin } = this.props
         return admin.showLoadingIndicator ? <LoadingBlocker /> : null
     }
@@ -101,7 +103,7 @@ export class AdminApp extends React.Component<{
         return { admin: this.props.admin }
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { admin, gitCmsBranchName } = this.props
 
         return (
@@ -250,12 +252,22 @@ export class AdminApp extends React.Component<{
                             />
                             <Route
                                 exact
+                                path="/site-redirects"
+                                component={SiteRedirectsIndexPage}
+                            />
+                            <Route
+                                exact
                                 path="/tags/:tagId"
                                 render={({ match }) => (
                                     <TagEditPage
                                         tagId={parseInt(match.params.tagId)}
                                     />
                                 )}
+                            />
+                            <Route
+                                exact
+                                path="/tag-graph"
+                                component={TagGraphPage}
                             />
                             <Route
                                 exact

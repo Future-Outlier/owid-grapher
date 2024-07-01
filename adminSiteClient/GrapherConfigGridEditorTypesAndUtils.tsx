@@ -1,17 +1,18 @@
 import {
+    checkIsPlainObjectWithGuard,
+    excludeUndefined,
+    isArray,
+    QueryParams,
+    queryParamsToStr,
+} from "@ourworldindata/utils"
+import {
     BinaryLogicOperation,
     BinaryLogicOperators,
     BooleanAtom,
     BooleanOperation,
-    checkIsPlainObjectWithGuard,
     ComparisonOperator,
-    EditorOption,
     EqualityComparision,
     EqualityOperator,
-    excludeUndefined,
-    FieldDescription,
-    GrapherConfigPatch,
-    isArray,
     JsonPointerSymbol,
     JSONPreciselyTyped,
     Negation,
@@ -22,14 +23,19 @@ import {
     Operation,
     OperationContext,
     parseToOperation,
-    QueryParams,
-    queryParamsToStr,
     SqlColumnName,
     StringAtom,
     StringContainsOperation,
     StringOperation,
+} from "../adminShared/SqlFilterSExpression.js"
+import {
+    GrapherConfigPatch,
     VariableAnnotationsResponseRow,
-} from "@ourworldindata/utils"
+} from "../adminShared/AdminSessionTypes.js"
+import {
+    EditorOption,
+    FieldDescription,
+} from "../adminShared/schemaProcessing.js"
 import React from "react"
 import { IconDefinition } from "@fortawesome/fontawesome-common-types"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
@@ -138,7 +144,7 @@ export function fetchVariablesParametersFromQueryString(
         offset: Number.parseInt(params.offset ?? "0"),
         filterQuery: filterQuery ?? filterExpressionNoFilter,
         sortByColumn: params.sortByColumn ?? "id",
-        sortByAscending: params.sortByAscending === "true" ?? false,
+        sortByAscending: params.sortByAscending === "true",
     }
 }
 
@@ -410,7 +416,7 @@ export function filterTreeToSExpression(
     } else if (filterTree.type === "rule") {
         if (isNil(filterTree.properties.field)) return undefined
         const field = getFieldSymbol(
-            filterTree.properties.field,
+            filterTree.properties.field as string,
             context,
             readOnlyFieldNamesMap
         )

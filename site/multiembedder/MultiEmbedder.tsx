@@ -16,7 +16,6 @@ import {
     fetchText,
     getWindowUrl,
     isArray,
-    isMobile,
     isPresent,
     Url,
     GrapherTabOption,
@@ -32,12 +31,12 @@ import {
     EMBEDDED_EXPLORER_PARTIAL_GRAPHER_CONFIGS,
     EXPLORER_EMBEDDED_FIGURE_SELECTOR,
 } from "../../explorer/ExplorerConstants.js"
+import { GRAPHER_PREVIEW_CLASS } from "../SiteConstants.js"
 import {
     ADMIN_BASE_URL,
     BAKED_GRAPHER_URL,
     DATA_API_URL,
 } from "../../settings/clientSettings.js"
-import { hydrateAnnotatingDataValue } from "../AnnotatingDataValue.js"
 import Bugsnag from "@bugsnag/js"
 import { embedDynamicCollectionGrapher } from "../collections/DynamicCollection.js"
 
@@ -52,13 +51,13 @@ const figuresFromDOM = (
 // Determine whether this device is powerful enough to handle
 // loading a bunch of inline interactive charts
 // 680px is also used in CSS – keep it in sync if you change this
-export const shouldProgressiveEmbed = () =>
-    !isMobile() ||
-    window.screen.width > 680 ||
-    pageContainsGlobalEntitySelector()
+export const shouldProgressiveEmbed = () => true
+// disabling this behaviour for now until we have a better way to detect low power devices
+// https://github.com/owid/owid-grapher/issues/3661
+// !isMobile() || window.screen.width > 680 || pageContainsGlobalEntitySelector()
 
-const pageContainsGlobalEntitySelector = () =>
-    globalEntitySelectorElement() !== null
+// const pageContainsGlobalEntitySelector = () =>
+//     globalEntitySelectorElement() !== null
 
 const globalEntitySelectorElement = () =>
     document.querySelector(GLOBAL_ENTITY_SELECTOR_ELEMENT)
@@ -201,7 +200,7 @@ class MultiEmbedder {
                 this.graphersAndExplorersToUpdate.add(props.selection)
             ReactDOM.render(<Explorer {...props} />, figure)
         } else {
-            figure.classList.remove("grapherPreview")
+            figure.classList.remove(GRAPHER_PREVIEW_CLASS)
 
             const grapherPageConfig = deserializeJSONFromHTML(html)
 
@@ -246,9 +245,6 @@ class MultiEmbedder {
             if (window.location.pathname.startsWith("/collection/custom")) {
                 embedDynamicCollectionGrapher(grapherRef, figure)
             }
-
-            if (!grapherRef.current) return
-            hydrateAnnotatingDataValue(grapherRef.current, figure)
         }
     }
 

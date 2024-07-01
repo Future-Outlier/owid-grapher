@@ -6,7 +6,7 @@ export default {
     component: NoDataModal,
 }
 
-export const WithAddDataButtons = (): JSX.Element => {
+export const WithAddDataButtons = (): React.ReactElement => {
     return (
         <div className="chart" style={{ width: 640, height: 480 }}>
             <svg>
@@ -15,7 +15,7 @@ export const WithAddDataButtons = (): JSX.Element => {
                     manager={{
                         canChangeEntity: true,
                         canAddData: true,
-                        isSelectingData: false,
+                        isEntitySelectorModalOrDrawerOpen: false,
                         entityType: "Country",
                     }}
                 />

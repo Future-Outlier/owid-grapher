@@ -1,5 +1,11 @@
 import React from "react"
-import { DEFAULT_BOUNDS, range, LogoOption } from "@ourworldindata/utils"
+import {
+    DEFAULT_BOUNDS,
+    range,
+    LogoOption,
+    makeIdForHumanConsumption,
+    Bounds,
+} from "@ourworldindata/utils"
 import { MarkdownTextWrap, TextWrap } from "@ourworldindata/components"
 import { computed } from "mobx"
 import { observer } from "mobx-react"
@@ -95,10 +101,16 @@ export class Header<
     }
 
     @computed get title(): TextWrap {
+        const logoPadding = this.manager.isNarrow
+            ? 12
+            : this.manager.isSmall
+              ? 16
+              : 24
+
         const makeTitle = (fontSize: number): TextWrap =>
             new TextWrap({
                 text: this.titleText,
-                maxWidth: this.maxWidth - this.logoWidth - 24,
+                maxWidth: this.maxWidth - this.logoWidth - logoPadding,
                 fontWeight: this.titleFontWeight,
                 lineHeight: this.titleLineHeight,
                 fontSize,
@@ -136,13 +148,36 @@ export class Header<
         return title
     }
 
+    @computed get useFullWidthForSubtitle(): boolean {
+        const subtitleWidth = Bounds.forText(this.subtitleText, {
+            fontSize: this.subtitleFontSize,
+        }).width
+        const isSmall =
+            this.manager.isSemiNarrow || this.manager.isStaticAndSmall
+        return (
+            // if the subtitle is entirely below the logo, we can go underneath it
+            this.title.height > this.logoHeight ||
+            // on narrow screens, long subtitles should also go underneath the logo
+            !!(isSmall && subtitleWidth > 2 * this.maxWidth)
+        )
+    }
+
     @computed get subtitleMarginTop(): number {
-        return 4
+        let padding = 4
+
+        // make sure the subtitle doesn't overlap with the logo
+        if (
+            this.useFullWidthForSubtitle &&
+            this.logoHeight > this.title.height
+        ) {
+            padding += this.logoHeight - this.title.height
+        }
+
+        return padding
     }
 
     @computed get subtitleWidth(): number {
-        // If the subtitle is entirely below the logo, we can go underneath it
-        return this.title.height > this.logoHeight
+        return this.useFullWidthForSubtitle
             ? this.maxWidth
             : this.maxWidth - this.logoWidth - 12
     }
@@ -184,7 +219,7 @@ export class Header<
         )
     }
 
-    private renderTitle(): JSX.Element {
+    private renderTitle(): React.ReactElement {
         const { manager } = this
 
         // avoid linking to a grapher/data page when we're already on it
@@ -225,17 +260,18 @@ export class Header<
         )
     }
 
-    private renderSubtitle(): JSX.Element {
+    private renderSubtitle(): React.ReactElement {
         const style = {
             ...this.subtitle.style,
             marginTop: this.subtitleMarginTop,
+            width: this.useFullWidthForSubtitle ? "100%" : undefined,
             // make sure there are no scrollbars on subtitle
             overflowY: "hidden",
         }
         return <p style={style}>{this.subtitle.renderHTML()}</p>
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         return (
             <div
                 className="HeaderHTML"
@@ -271,16 +307,17 @@ export class StaticHeader extends Header<StaticHeaderProps> {
         return 1.2
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { targetX: x, targetY: y } = this.props
         const { title, logo, subtitle, manager, maxWidth } = this
         return (
-            <g className="HeaderView">
+            <g id={makeIdForHumanConsumption("header")} className="HeaderView">
                 {logo &&
                     logo.height > 0 &&
                     logo.renderSVG(x + maxWidth - logo.width, y)}
                 {this.showTitle && (
                     <a
+                        id={makeIdForHumanConsumption("title")}
                         href={manager.canonicalUrl}
                         style={{
                             fontFamily:
@@ -302,6 +339,7 @@ export class StaticHeader extends Header<StaticHeaderProps> {
                                 ? title.height + this.subtitleMarginTop
                                 : 0),
                         {
+                            id: makeIdForHumanConsumption("subtitle"),
                             textProps: {
                                 fill: manager.secondaryColorInStaticCharts,
                             },

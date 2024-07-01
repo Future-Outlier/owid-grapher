@@ -18,6 +18,7 @@ import {
     clamp,
     HorizontalAlign,
     difference,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { TextWrap } from "@ourworldindata/components"
 import { observable, computed, action } from "mobx"
@@ -33,7 +34,8 @@ import {
     GRAPHER_DARK_TEXT,
     GRAPHER_FONT_SCALE_9_6,
     GRAPHER_FONT_SCALE_10_5,
-    GRAPHER_FONT_SCALE_11_2,
+    GRAPHER_TIMELINE_CLASS,
+    GRAPHER_SIDE_PANEL_CLASS,
 } from "../core/GrapherConstants"
 import {
     ScaleType,
@@ -63,10 +65,10 @@ import {
     HorizontalColorLegendManager,
 } from "../horizontalColorLegend/HorizontalColorLegends"
 import { CategoricalBin, ColorScaleBin } from "../color/ColorScaleBin"
+import { NoDataSection } from "../scatterCharts/NoDataSection"
 
 export interface SlopeChartManager extends ChartManager {
     isModalOpen?: boolean
-    isSemiNarrow?: boolean
 }
 
 const LABEL_SLOPE_PADDING = 8
@@ -91,6 +93,8 @@ export class SlopeChart
     @observable hoverKey?: string
     // currently hovered legend color
     @observable hoverColor?: string
+
+    private hasInteractedWithChart = false
 
     transformTable(table: OwidTable) {
         if (!table.has(this.yColumnSlug)) return table
@@ -161,7 +165,7 @@ export class SlopeChart
         if (!isEntitySelectionEnabled || hoverKey === undefined) {
             return
         }
-
+        this.hasInteractedWithChart = true
         this.selectionArray.toggleSelection(hoverKey)
     }
 
@@ -197,6 +201,8 @@ export class SlopeChart
     @action.bound onLegendClick() {
         const { hoverColor, isEntitySelectionEnabled } = this
         if (!isEntitySelectionEnabled || hoverColor === undefined) return
+
+        this.hasInteractedWithChart = true
 
         const seriesNamesToToggle = this.series
             .filter((g) => g.color === hoverColor)
@@ -335,65 +341,19 @@ export class SlopeChart
         )
     }
 
-    @computed private get noDataSection(): JSX.Element {
-        const { selectedEntitiesWithoutData } = this
-
-        const displayedEntities = selectedEntitiesWithoutData.slice(0, 5)
-        const numRemainingEntities = Math.max(
-            0,
-            selectedEntitiesWithoutData.length - displayedEntities.length
-        )
-
+    @computed private get noDataSection(): React.ReactElement {
         const bounds = new Bounds(
             this.legendX,
-            this.legendY + this.legendHeight,
+            this.legendY + this.legendHeight + 12,
             this.sidebarWidth,
-            this.bounds.height - this.legendHeight
+            this.bounds.height - this.legendHeight - 12
         )
-
         return (
-            <foreignObject
-                {...bounds.toProps()}
-                style={{
-                    color: GRAPHER_DARK_TEXT,
-                    fontSize: GRAPHER_FONT_SCALE_11_2 * this.fontSize,
-                }}
-            >
-                <div
-                    style={{
-                        textTransform: "uppercase",
-                        fontWeight: 700,
-                        marginTop: 12,
-                        marginBottom: 2,
-                        lineHeight: 1.15,
-                    }}
-                >
-                    No data
-                </div>
-                <ul>
-                    {displayedEntities.map((entityName) => (
-                        <li
-                            key={entityName}
-                            style={{
-                                fontStyle: "italic",
-                                lineHeight: 1.15,
-                                marginBottom: 2,
-                            }}
-                        >
-                            {entityName}
-                        </li>
-                    ))}
-                </ul>
-                {numRemainingEntities > 0 && (
-                    <div>
-                        &{" "}
-                        {numRemainingEntities === 1
-                            ? "one"
-                            : numRemainingEntities}{" "}
-                        more
-                    </div>
-                )}
-            </foreignObject>
+            <NoDataSection
+                entityNames={this.selectedEntitiesWithoutData}
+                bounds={bounds}
+                baseFontSize={this.fontSize}
+            />
         )
     }
 
@@ -425,7 +385,10 @@ export class SlopeChart
         )
 
         return (
-            <g className="slopeChart">
+            <g
+                id={makeIdForHumanConsumption("slope-chart")}
+                className="slopeChart"
+            >
                 <LabelledSlopes
                     manager={manager}
                     bounds={innerBounds}
@@ -446,6 +409,10 @@ export class SlopeChart
                     this.noDataSection}
             </g>
         )
+    }
+
+    @computed get categoryLegendY(): number {
+        return this.bounds.top
     }
 
     @computed get legendY() {
@@ -534,11 +501,12 @@ export class SlopeChart
         const target = e.target as HTMLElement
 
         // check if the target is an interactive element or contained within one
-        const selector = "a, button, input, .TimelineComponent"
+        const selector = `a, button, input, .${GRAPHER_TIMELINE_CLASS}, .${GRAPHER_SIDE_PANEL_CLASS}`
         const isTargetInteractive = target.closest(selector) !== null
 
         if (
             this.isEntitySelectionEnabled &&
+            this.hasInteractedWithChart &&
             !this.hoverKey &&
             !this.hoverColor &&
             !this.manager.isModalOpen &&
@@ -648,6 +616,7 @@ class SlopeEntry extends React.Component<SlopeEntryProps> {
             isFocused,
             isHovered,
             isMultiHoverMode,
+            seriesName,
         } = this.props
         const { isInBackground } = this
 
@@ -667,7 +636,10 @@ class SlopeEntry extends React.Component<SlopeEntryProps> {
         }
 
         return (
-            <g className="slope">
+            <g
+                id={makeIdForHumanConsumption("slope", seriesName)}
+                className="slope"
+            >
                 <line
                     ref={(el) => (this.line = el)}
                     x1={x1}
@@ -956,6 +928,7 @@ class LabelledSlopes
                 ...valueLabelProps,
                 maxWidth,
                 fontWeight: 700,
+                separators: [" ", "-"],
             }
             const leftEntityLabel = new TextWrap({
                 text,
@@ -1273,11 +1246,20 @@ class LabelledSlopes
                     fill="rgba(255,255,255,0)"
                     opacity={0}
                 />
-                <g className="gridlines">
+                <g
+                    id={makeIdForHumanConsumption("grid-lines")}
+                    className="gridlines"
+                >
                     {this.yAxis.tickLabels.map((tick) => {
                         const y = yAxis.place(tick.value)
                         return (
-                            <g key={y.toString()}>
+                            <g
+                                id={makeIdForHumanConsumption(
+                                    "grid-line",
+                                    tick.value.toString()
+                                )}
+                                key={y.toString()}
+                            >
                                 {/* grid lines connecting the chart area to the axis */}
                                 <line
                                     x1={bounds.left + this.yAxis.width + 8}
@@ -1310,23 +1292,23 @@ class LabelledSlopes
                 <line x1={x2} y1={y1} x2={x2} y2={y2} stroke="#999" />
                 <text
                     x={x1}
-                    y={y1 + BOTTOM_PADDING}
+                    y={y1 + BOTTOM_PADDING - 2}
                     textAnchor="middle"
                     fill={GRAPHER_DARK_TEXT}
                     fontSize={this.yAxis.tickFontSize}
                 >
-                    {xDomain[0].toString()}
+                    {this.yColumn.formatTime(xDomain[0])}
                 </text>
                 <text
                     x={x2}
-                    y={y1 + BOTTOM_PADDING}
+                    y={y1 + BOTTOM_PADDING - 2}
                     textAnchor="middle"
                     fill={GRAPHER_DARK_TEXT}
                     fontSize={this.yAxis.tickFontSize}
                 >
-                    {xDomain[1].toString()}
+                    {this.yColumn.formatTime(xDomain[1])}
                 </text>
-                <g className="slopes">
+                <g id={makeIdForHumanConsumption("slopes")} className="slopes">
                     {this.renderGroups(this.backgroundGroups)}
                     {this.renderGroups(this.foregroundGroups)}
                 </g>

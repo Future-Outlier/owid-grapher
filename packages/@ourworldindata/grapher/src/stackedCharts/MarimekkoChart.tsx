@@ -21,6 +21,8 @@ import {
     getRelativeMouse,
     ColorSchemeName,
     EntitySelectionMode,
+    makeIdForHumanConsumption,
+    getCountryByName,
 } from "@ourworldindata/utils"
 import { action, computed, observable } from "mobx"
 import { observer } from "mobx-react"
@@ -45,7 +47,13 @@ import { OwidTable, CoreColumn } from "@ourworldindata/core-table"
 import { autoDetectYColumnSlugs, makeSelectionArray } from "../chart/ChartUtils"
 import { StackedPoint, StackedSeries } from "./StackedConstants"
 import { ColorSchemes } from "../color/ColorSchemes"
-import { Tooltip, TooltipValue, TooltipState } from "../tooltip/Tooltip"
+import { TooltipFooterIcon } from "../tooltip/TooltipProps.js"
+import {
+    Tooltip,
+    TooltipValue,
+    TooltipState,
+    makeTooltipRoundingNotice,
+} from "../tooltip/Tooltip"
 import {
     HorizontalCategoricalColorLegend,
     HorizontalColorLegendManager,
@@ -79,6 +87,10 @@ import {
 
 const MARKER_MARGIN: number = 4
 const MARKER_AREA_HEIGHT: number = 25
+const MAX_LABEL_COUNT: number = 20
+
+// if an entity name exceeds this width, we use the short name instead (if available)
+const SOFT_MAX_LABEL_WIDTH = 60
 
 function MarimekkoBar({
     bar,
@@ -89,7 +101,7 @@ function MarimekkoBar({
     entityColor,
     y0,
     dualAxis,
-}: MarimekkoBarProps): JSX.Element {
+}: MarimekkoBarProps): React.ReactElement {
     const { seriesName } = bar
     const isPlaceholder = bar.kind === BarShape.BarPlaceholder
     const barBaseColor =
@@ -170,8 +182,9 @@ interface MarimekkoBarsProps {
     dualAxis: DualAxis
 }
 
-function MarimekkoBarsForOneEntity(props: MarimekkoBarsProps): JSX.Element {
-    7
+function MarimekkoBarsForOneEntity(
+    props: MarimekkoBarsProps
+): React.ReactElement {
     const {
         entityName,
         bars,
@@ -225,6 +238,7 @@ function MarimekkoBarsForOneEntity(props: MarimekkoBarsProps): JSX.Element {
     return (
         <g
             key={entityName}
+            id={makeIdForHumanConsumption("bar", entityName)}
             className="bar"
             transform={`translate(${currentX}, ${labelYOffset})`}
             onMouseOver={(ev): void => onEntityMouseOver(entityName, ev)}
@@ -467,8 +481,9 @@ export class MarimekkoChart
     @computed private get colorScheme(): ColorScheme {
         return (
             (this.manager.baseColorScheme
-                ? ColorSchemes[this.manager.baseColorScheme]
-                : undefined) ?? ColorSchemes["owid-distinct"]
+                ? ColorSchemes.get(this.manager.baseColorScheme)
+                : undefined) ??
+            ColorSchemes.get(ColorSchemeName["owid-distinct"])
         )
     }
 
@@ -824,7 +839,7 @@ export class MarimekkoChart
     // legend props
 
     @computed get legendPaddingTop(): number {
-        return this.baseFontSize
+        return this.legend.height > 0 ? this.baseFontSize : 0
     }
 
     @computed get legendX(): number {
@@ -857,10 +872,11 @@ export class MarimekkoChart
 
     @computed get categoricalLegendData(): CategoricalBin[] {
         const { colorColumnSlug, colorScale, series } = this
-        const customHiddenCategories =
-            this.colorScaleConfig?.customHiddenCategories
-        if (colorColumnSlug) return colorScale.categoricalLegendBins
-        else
+        if (colorColumnSlug) {
+            return colorScale.categoricalLegendBins
+        } else if (series.length > 0) {
+            const customHiddenCategories =
+                this.colorScaleConfig?.customHiddenCategories
             return series.map((series, index) => {
                 return new CategoricalBin({
                     index,
@@ -870,6 +886,8 @@ export class MarimekkoChart
                     isHidden: !!customHiddenCategories?.[series.seriesName],
                 })
             })
+        }
+        return []
     }
 
     @action.bound onLegendMouseOver(bin: ColorScaleBin): void {
@@ -926,7 +944,7 @@ export class MarimekkoChart
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -970,14 +988,47 @@ export class MarimekkoChart
         const shouldShowXTimeNotice =
             xPoint && xPoint.time !== endTime && xOverrideTime === undefined
         const xNotice = shouldShowXTimeNotice ? xPoint?.time : undefined
-        const notice =
+        const targetNotice =
             xNotice || yValues.some(({ notice }) => !!notice)
                 ? timeColumn.formatValue(endTime)
                 : undefined
+        const toleranceNotice = targetNotice
+            ? { icon: TooltipFooterIcon.notice, text: targetNotice }
+            : undefined
+
+        const columns = excludeUndefined([xColumn, yColumn])
+        const allRoundedToSigFigs = columns.every(
+            (column) => column.roundsToSignificantFigures
+        )
+        const anyRoundedToSigFigs = columns.some(
+            (column) => column.roundsToSignificantFigures
+        )
+        const sigFigs = excludeUndefined(
+            columns.map((column) =>
+                column.roundsToSignificantFigures
+                    ? column.numSignificantFigures
+                    : undefined
+            )
+        )
+        const roundingNotice = anyRoundedToSigFigs
+            ? {
+                  icon: allRoundedToSigFigs
+                      ? TooltipFooterIcon.none
+                      : TooltipFooterIcon.significance,
+                  text: makeTooltipRoundingNotice(sigFigs, {
+                      plural: sigFigs.length > 1,
+                  }),
+              }
+            : undefined
+        const superscript =
+            !!roundingNotice && roundingNotice.icon !== TooltipFooterIcon.none
+
+        const footer = excludeUndefined([toleranceNotice, roundingNotice])
 
         return (
             <g
                 ref={this.base}
+                id={makeIdForHumanConsumption("marimekko-chart")}
                 className="MarimekkoChart"
                 onMouseMove={(ev): void => this.onMouseMove(ev)}
             >
@@ -1013,8 +1064,7 @@ export class MarimekkoChart
                         offsetY={-16}
                         title={entityName}
                         subtitle={timeColumn.formatValue(endTime)}
-                        footer={notice}
-                        footerFormat="notice"
+                        footer={footer}
                         dissolve={fading}
                     >
                         {yValues.map(({ name, value, notice }) => (
@@ -1023,6 +1073,7 @@ export class MarimekkoChart
                                 column={yColumn}
                                 value={value}
                                 notice={notice}
+                                showSignificanceSuperscript={superscript}
                             />
                         ))}
                         {xColumn && (
@@ -1030,6 +1081,7 @@ export class MarimekkoChart
                                 column={xColumn}
                                 value={xPoint?.value}
                                 notice={xNotice}
+                                showSignificanceSuperscript={superscript}
                             />
                         )}
                     </Tooltip>
@@ -1038,9 +1090,9 @@ export class MarimekkoChart
         )
     }
 
-    private renderBars(): JSX.Element[] {
-        const normalElements: JSX.Element[] = []
-        const highlightedElements: JSX.Element[] = [] // highlighted elements have a thicker stroke and should be drawn last to overlap others
+    private renderBars(): React.ReactElement[] {
+        const normalElements: React.ReactElement[] = []
+        const highlightedElements: React.ReactElement[] = [] // highlighted elements have a thicker stroke and should be drawn last to overlap others
         const {
             dualAxis,
             x0,
@@ -1188,7 +1240,7 @@ export class MarimekkoChart
             else normalElements.push(result)
         }
 
-        return ([] as JSX.Element[]).concat(
+        return ([] as React.ReactElement[]).concat(
             noDataAreaElement ? [noDataAreaElement] : [],
             normalElements,
             placedLabels,
@@ -1204,11 +1256,20 @@ export class MarimekkoChart
         fontSize: number,
         isSelected: boolean
     ): LabelCandidate {
+        let label = item.entityName
+        let labelBounds = Bounds.forText(label, {
+            fontSize,
+        })
+        if (labelBounds.width > SOFT_MAX_LABEL_WIDTH && item.shortEntityName) {
+            label = item.shortEntityName
+            labelBounds = Bounds.forText(label, {
+                fontSize,
+            })
+        }
         return {
             item: item,
-            bounds: Bounds.forText(item.entityName, {
-                fontSize,
-            }),
+            label,
+            bounds: labelBounds,
             isPicked: isSelected,
             isSelected,
         }
@@ -1219,16 +1280,28 @@ export class MarimekkoChart
     20 labels relatively evenly spaced (in x domain space) and this function gives us 20 groups that
     are roughly of equal size and then we can pick the largest of each group */
     private static splitIntoEqualDomainSizeChunks(
+        items: Item[],
         candidates: LabelCandidate[],
         numChunks: number
     ): LabelCandidate[][] {
+        // candidates contains all entities available in the chart for some time
+        // items is just the entities for the currently selected time, so can be a way smaller subset
+        const validItemNames = items.map(({ entityName }) => entityName)
+
+        // filter the list to remove any candidates that are not currently visible
+        // all further calculations are then done only with validCandidates
+        const validCandidates = candidates.filter((candidate) =>
+            validItemNames.includes(candidate.item.entityName)
+        )
+
         const chunks: LabelCandidate[][] = []
         let currentChunk: LabelCandidate[] = []
         let domainSizeOfChunk = 0
         const domainSizeThreshold = Math.ceil(
-            sumBy(candidates, (candidate) => candidate.item.xValue) / numChunks
+            sumBy(validCandidates, (candidate) => candidate.item.xValue) /
+                numChunks
         )
-        for (const candidate of candidates) {
+        for (const candidate of validCandidates) {
             while (domainSizeOfChunk > domainSizeThreshold) {
                 chunks.push(currentChunk)
                 currentChunk = []
@@ -1250,6 +1323,7 @@ export class MarimekkoChart
             xRange,
             sortConfig,
             paddingInPixels,
+            items,
         } = this
 
         if (yColumnsAtLastTimePoint.length === 0) return []
@@ -1268,6 +1342,10 @@ export class MarimekkoChart
                 row.value,
             ])
         )
+
+        // We want labels to be chosen according to the latest time point available in the chart.
+        // The reason for this is that it makes it so the labels are pretty consistent across time,
+        // and not very jumpy when the user drags across the timeline.
         const labelCandidateSource = xColumnAtLastTimePoint
             ? xColumnAtLastTimePoint
             : yColumnsAtLastTimePoint[0]
@@ -1277,6 +1355,7 @@ export class MarimekkoChart
                 MarimekkoChart.labelCandidateFromItem(
                     {
                         entityName: row.entityName,
+                        shortEntityName: getShortNameForEntity(row.entityName),
                         xValue:
                             xColumnAtLastTimePoint !== undefined
                                 ? row.value
@@ -1328,9 +1407,13 @@ export class MarimekkoChart
         const labelHeight = labelCandidates[0].bounds.height
 
         const numLabelsToAdd = Math.floor(
-            Math.min(availablePixels / (labelHeight + paddingInPixels) / 3, 20) // factor 3 is arbitrary to taste
+            Math.min(
+                availablePixels / (labelHeight + paddingInPixels) / 3, // factor 3 is arbitrary to taste
+                MAX_LABEL_COUNT
+            )
         )
         const chunks = MarimekkoChart.splitIntoEqualDomainSizeChunks(
+            items,
             labelCandidates,
             numLabelsToAdd
         )
@@ -1471,7 +1554,7 @@ export class MarimekkoChart
         return labelsWithPlacements
     }
 
-    @computed private get labelLines(): JSX.Element[] {
+    @computed private get labelLines(): React.ReactElement[] {
         const { labelsWithPlacementInfo, dualAxis, selectedItems } = this
         const shiftedGroups: LabelWithPlacement[][] = []
         const unshiftedElements: LabelWithPlacement[] = []
@@ -1504,7 +1587,7 @@ export class MarimekkoChart
         // then we could do this but this makes it jumpy over time
         // if (shiftedGroups.length === 0) return []
         // else {
-        const labelLines: JSX.Element[] = []
+        const labelLines: React.ReactElement[] = []
         for (const group of shiftedGroups) {
             let indexInGroup = 0
             for (const item of group) {
@@ -1525,7 +1608,14 @@ export class MarimekkoChart
                         ? directionUnawareMakerYMid
                         : markerNetHeight - directionUnawareMakerYMid
                 labelLines.push(
-                    <g className="indicator" key={`labelline-${item.labelKey}`}>
+                    <g
+                        id={makeIdForHumanConsumption(
+                            "label-line",
+                            item.labelKey
+                        )}
+                        className="indicator"
+                        key={`labelline-${item.labelKey}`}
+                    >
                         <path
                             d={`M${markerBarEndpointX},${markerBarEndpointY} v${markerYMid} H${markerTextEndpointX} V${markerTextEndpointY}`}
                             stroke={lineColor}
@@ -1547,7 +1637,11 @@ export class MarimekkoChart
                 barEndpointY + MARKER_AREA_HEIGHT - MARKER_MARGIN
 
             labelLines.push(
-                <g className="indicator" key={`labelline-${item.labelKey}`}>
+                <g
+                    id={makeIdForHumanConsumption("label-line", item.labelKey)}
+                    className="indicator"
+                    key={`labelline-${item.labelKey}`}
+                >
                     <path
                         d={`M${markerBarEndpointX},${markerBarEndpointY} V${markerTextEndpointY}`}
                         stroke={lineColor}
@@ -1561,7 +1655,7 @@ export class MarimekkoChart
         //}
     }
 
-    @computed private get placedLabels(): JSX.Element[] {
+    @computed private get placedLabels(): React.ReactElement[] {
         const labelOffset = MARKER_AREA_HEIGHT
         // old logic tried to hide labellines but that is too jumpy
         // labelLines.length
@@ -1570,6 +1664,7 @@ export class MarimekkoChart
         const placedLabels = this.labelsWithPlacementInfo.map((item) => (
             <g
                 key={`label-${item.labelKey}`}
+                id={makeIdForHumanConsumption("label", item.labelKey)}
                 className="bar-label"
                 transform={`translate(${item.correctedPlacement}, ${labelOffset})`}
             >
@@ -1656,7 +1751,7 @@ export class MarimekkoChart
                             this.onEntityClick(candidate.item.entityName)
                         }
                     >
-                        {candidate.item.entityName}
+                        {candidate.label}
                     </text>
                 ),
             }
@@ -1671,4 +1766,9 @@ export class MarimekkoChart
 
         return yColumns.every((col) => col.isEmpty) ? "No matching data" : ""
     }
+}
+
+function getShortNameForEntity(entityName: string): string | undefined {
+    const country = getCountryByName(entityName)
+    return country?.shortName
 }

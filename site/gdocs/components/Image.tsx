@@ -6,6 +6,7 @@ import {
     ImageMetadata,
     getFilenameMIMEType,
 } from "@ourworldindata/utils"
+import cx from "classnames"
 import { LIGHTBOX_IMAGE_CLASS } from "../../Lightbox.js"
 import {
     IMAGE_HOSTING_R2_BUCKET_SUBFOLDER_PATH,
@@ -30,7 +31,14 @@ const gridSpan6 = generateResponsiveSizes(6)
 const gridSpan7 = generateResponsiveSizes(7)
 const gridSpan8 = generateResponsiveSizes(8)
 
-type ImageParentContainer = Container | "thumbnail" | "full-width"
+export type ImageParentContainer =
+    | Exclude<Container, "sticky-right-left-heading-column">
+    | "thumbnail"
+    | "full-width"
+    | "span-5"
+    | "span-6"
+    | "span-7"
+    | "span-8"
 
 const containerSizes: Record<ImageParentContainer, string> = {
     ["default"]: gridSpan8,
@@ -45,12 +53,17 @@ const containerSizes: Record<ImageParentContainer, string> = {
     ["full-width"]: "100vw",
     ["key-insight"]: gridSpan5,
     ["author-header"]: gridSpan2,
+    ["span-5"]: gridSpan5,
+    ["span-6"]: gridSpan6,
+    ["span-7"]: gridSpan7,
+    ["span-8"]: gridSpan8,
 }
 
 export default function Image(props: {
     filename: string
     smallFilename?: string
     alt?: string
+    hasOutline?: boolean
     className?: string
     containerType?: ImageParentContainer
     shouldLightbox?: boolean
@@ -58,10 +71,15 @@ export default function Image(props: {
     const {
         filename,
         smallFilename,
-        className = "",
+        hasOutline,
         containerType = "default",
         shouldLightbox = true,
     } = props
+
+    const className = cx(props.className, {
+        "image--has-outline": hasOutline,
+    })
+
     const { isPreviewing } = useContext(DocumentContext)
     const image = useImage(filename)
     const smallImage = useImage(smallFilename)

@@ -18,52 +18,45 @@ ifneq (,$(wildcard ./.env))
 	export
 endif
 
-.PHONY: help up up.full down down.full refresh refresh.wp refresh.full migrate svgtest itsJustJavascript
+.PHONY: help up up.full down refresh refresh.wp refresh.full migrate svgtest itsJustJavascript
 
 help:
 	@echo 'Available commands:'
 	@echo
 	@echo '  GRAPHER ONLY'
-	@echo '  make up                start dev environment via docker-compose and tmux'
-	@echo '  make down              stop any services still running'
-	@echo '  make refresh           (while up) download a new grapher snapshot and update MySQL'
-	@echo '  make refresh.pageviews (while up) download and load pageviews from the private datasette instance'
-	@echo '  make migrate           (while up) run any outstanding db migrations'
-	@echo '  make test              run full suite (except db tests) of CI checks including unit tests'
-	@echo '  make dbtest            run db test suite that needs a running mysql db'
-	@echo '  make svgtest           compare current rendering against reference SVGs'
+	@echo '  make up                     start dev environment via docker-compose and tmux'
+	@echo '  make down                   stop any services still running'
+	@echo '  make refresh                (while up) download a new grapher snapshot and update MySQL'
+	@echo '  make refresh.pageviews      (while up) download and load pageviews from the private datasette instance'
+	@echo '  make refresh.full           (while up) run refresh and refresh.pageviews and sync images from R2'
+	@echo '  make migrate                (while up) run any outstanding db migrations'
+	@echo '  make test                   run full suite (except db tests) of CI checks including unit tests'
+	@echo '  make dbtest                 run db test suite that needs a running mysql db'
+	@echo '  make svgtest                compare current rendering against reference SVGs'
 	@echo
-	@echo '  GRAPHER + WORDPRESS (staff-only)'
-	@echo '  make up.full           start dev environment via docker-compose and tmux'
-	@echo '  make down.full         stop any services still running'
-	@echo '  make refresh.wp        download a new wordpress snapshot and update MySQL'
-	@echo '  make refresh.full      do a full MySQL update of both wordpress and grapher'
-	@echo '  make sync-images       sync all images from the remote master'
-	@echo '  make reindex			reindex (or initialise) search in Algolia'
-	@echo
-	@echo '  OPS (staff-only)'
-	@echo '  make deploy            Deploy your local site to production'
-	@echo '  make stage             Deploy your local site to staging'
-	@echo
+	@echo '  GRAPHER + CLOUDFLARE (staff-only)'
+	@echo '  make up.full                start dev environment via docker-compose and tmux'
+	@echo '  make sync-images            sync all images from the remote master'
+	@echo '  make update.chart-entities  update the charts_x_entities join table'
+	@echo '  make reindex                reindex (or initialise) search in Algolia'
+	@echo '  make bench.search           run search benchmarks'
 
 up: export DEBUG = 'knex:query'
 
-up: require create-if-missing.env ../owid-content tmp-downloads/owid_metadata.sql.gz
+up: require create-if-missing.env ../owid-content tmp-downloads/owid_metadata.sql.gz node_modules
 	@make validate.env
 	@make check-port-3306
 	@echo '==> Building grapher'
-	yarn install
 	yarn lerna run build
-	yarn run tsc -b
 
 	@echo '==> Starting dev environment'
 	@mkdir -p logs
 	tmux new-session -s grapher \
-		-n docker 'docker-compose -f docker-compose.grapher.yml up' \; \
+		-n docker 'docker compose -f docker-compose.grapher.yml up' \; \
 			set remain-on-exit on \; \
 		set-option -g default-shell $(SCRIPT_SHELL) \; \
 		new-window -n admin \
-			'devTools/docker/wait-for-mysql.sh && yarn run tsc-watch -b --onSuccess "yarn startAdminServer"' \; \
+			'devTools/docker/wait-for-mysql.sh && yarn startAdminDevServer' \; \
 			set remain-on-exit on \; \
 		new-window -n vite 'yarn run startSiteFront' \; \
 			set remain-on-exit on \; \
@@ -76,19 +69,17 @@ up: require create-if-missing.env ../owid-content tmp-downloads/owid_metadata.sq
 		set -g mouse on \
 		|| make down
 
-up.devcontainer: create-if-missing.env.devcontainer tmp-downloads/owid_metadata.sql.gz
+up.devcontainer: create-if-missing.env.devcontainer tmp-downloads/owid_metadata.sql.gz node_modules
 	@make validate.env
 	@make check-port-3306
 	@echo '==> Building grapher'
-	yarn install
 	yarn lerna run build
-	yarn run tsc -b
 
 	@echo '==> Starting dev environment'
 	@mkdir -p logs
 	tmux new-session -s grapher \
 		-n admin \
-			'devTools/docker/wait-for-mysql.sh && yarn run tsc-watch -b --onSuccess "yarn startAdminServer"' \; \
+			'devTools/docker/wait-for-mysql.sh && yarn startAdminDevServer' \; \
 			set remain-on-exit on \; \
 		new-window -n vite 'yarn run startSiteFront' \; \
 			set remain-on-exit on \; \
@@ -101,23 +92,20 @@ up.devcontainer: create-if-missing.env.devcontainer tmp-downloads/owid_metadata.
 
 up.full: export DEBUG = 'knex:query'
 
-up.full: require create-if-missing.env.full ../owid-content wordpress/.env tmp-downloads/owid_metadata.sql.gz tmp-downloads/live_wordpress.sql.gz wordpress/web/app/uploads/2022
+up.full: require create-if-missing.env.full ../owid-content tmp-downloads/owid_metadata.sql.gz node_modules
 	@make validate.env.full
 	@make check-port-3306
 
 	@echo '==> Building grapher'
-	yarn install
 	yarn lerna run build
-	yarn run tsc -b
-	yarn buildWordpressPlugin
 
 	@echo '==> Starting dev environment'
 	tmux new-session -s grapher \
-		-n docker 'docker-compose -f docker-compose.full.yml up' \; \
+		-n docker 'docker compose -f docker-compose.grapher.yml up' \; \
 			set remain-on-exit on \; \
 		set-option -g default-shell $(SCRIPT_SHELL) \; \
 		new-window -n admin \
-			'devTools/docker/wait-for-mysql.sh && yarn run tsc-watch -b --onSuccess "yarn startAdminServer"' \; \
+			'devTools/docker/wait-for-mysql.sh && yarn startAdminDevServer' \; \
 			set remain-on-exit on \; \
 		new-window -n vite 'yarn run startSiteFront' \; \
 			set remain-on-exit on \; \
@@ -130,13 +118,11 @@ up.full: require create-if-missing.env.full ../owid-content wordpress/.env tmp-d
 		bind X kill-pane \; \
 		bind Q kill-server \; \
 		set -g mouse on \
-		|| make down.full
+		|| make down
 
-migrate:
+migrate: node_modules
 	@echo '==> Running DB migrations'
-	yarn && yarn buildTsc && yarn runDbMigrations
-
-refresh.full: refresh refresh.wp sync-images
+	yarn buildLerna && yarn runDbMigrations
 
 refresh:
 	@echo '==> Downloading chart data'
@@ -148,25 +134,16 @@ refresh:
 	@echo '!!! If you use ETL, wipe indicators from your R2 staging with `rclone delete r2:owid-api-staging/[yourname]/ ' \
 	'--fast-list --transfers 32 --checkers 32  --verbose`'
 
-refresh.pageviews:
+refresh.pageviews: node_modules
 	@echo '==> Refreshing pageviews'
-	yarn && yarn buildTsc && yarn refreshPageviews
-
-refresh.wp:
-	@echo '==> Downloading wordpress data'
-	./devTools/docker/download-wordpress-mysql.sh
-
-	@echo '==> Updating wordpress data'
-	@. ./.env && DATA_FOLDER=tmp-downloads ./devTools/docker/refresh-wordpress-data.sh
-
-	@echo '!!! WARNING !!!'
-	@echo 'If you run this for staging WP, you have to set !Account password! for'
-	@echo 'tech@ourworldindata.org user to the value from `.env:WORDPRESS_API_PASS`'
-	@echo 'at https://staging.owid.cloud/wp/wp-admin/user-edit.php?user_id=35'
+	yarn refreshPageviews
 
 sync-images: sync-images.preflight-check
 	@echo '==> Syncing images to R2'
 	@. ./.env && ./devTools/docker/sync-s3-images.sh
+
+refresh.full: refresh refresh.pageviews sync-images
+	@echo '==> Full refresh completed'
 
 sync-images.preflight-check:
 	@echo '==> Checking for rclone'
@@ -177,15 +154,11 @@ sync-images.preflight-check:
 
 down:
 	@echo '==> Stopping services'
-	docker-compose -f docker-compose.grapher.yml down
-
-down.full:
-	@echo '==> Stopping services'
-	docker-compose -f docker-compose.full.yml down
+	docker compose -f docker-compose.grapher.yml down
 
 require:
 	@echo '==> Checking your local environment has the necessary commands...'
-	@which docker-compose >/dev/null 2>&1 || (echo "ERROR: docker-compose is required."; exit 1)
+	@which docker >/dev/null 2>&1 || (echo "ERROR: docker compose is required."; exit 1)
 	@which yarn >/dev/null 2>&1 || (echo "ERROR: yarn is required."; exit 1)
 	@which tmux >/dev/null 2>&1 || (echo "ERROR: tmux is required."; exit 1)
 	@which finger >/dev/null 2>&1 || (echo "ERROR: finger is required."; exit 1)
@@ -237,51 +210,8 @@ tmp-downloads/owid_metadata.sql.gz:
 	@echo '==> Downloading metadata'
 	./devTools/docker/download-grapher-metadata-mysql.sh
 
-tmp-downloads/live_wordpress.sql.gz:
-	@echo '==> Downloading wordpress data'
-	./devTools/docker/download-wordpress-mysql.sh
-
-wordpress/.env:
-	@echo 'Copying wordpress/.env.example --> wordpress/.env'
-	@cp -f wordpress/.env.example wordpress/.env
-
-wordpress/web/app/uploads/2022:
-	@echo '==> Downloading wordpress uploads'
-	./devTools/docker/download-wordpress-uploads.sh
-
-deploy:
-	@echo '==> Starting from a clean slate...'
-	rm -rf itsJustJavascript
-
-	@echo '==> Building...'
-	yarn
-	yarn lerna run build --skip-nx-cache
-	yarn run tsc -b
-
-	@echo '==> Deploying...'
-	yarn buildAndDeploySite live
-
-stage:
-	@if [[ ! "$(STAGING)" ]]; then \
-		echo 'ERROR: must set the staging environment'; \
-		echo '       e.g. STAGING=halley make stage'; \
-		exit 1; \
-	fi
-	@echo '==> Preparing to deploy to $(STAGING)'
-	@echo '==> Starting from a clean slate...'
-	rm -rf itsJustJavascript
-
-	@echo '==> Building...'
-	yarn
-	yarn lerna run build
-	yarn run tsc -b
-
-	@echo '==> Deploying to $(STAGING)...'
-	yarn buildAndDeploySite $(STAGING)
-
-test:
+test: node_modules
 	@echo '==> Linting'
-	yarn
 	yarn run eslint
 	yarn lerna run build
 	yarn lerna run buildTests
@@ -292,32 +222,27 @@ test:
 	@echo '==> Running tests'
 	yarn run jest
 
-dbtest:
+dbtest: node_modules
 	@echo '==> Building'
-	yarn
 	yarn buildTsc
 
 	@echo '==> Running db test script'
 	./db/tests/run-db-tests.sh
 
-lint:
+lint: node_modules
 	@echo '==> Linting'
-	yarn
 	yarn run eslint
 
-check-formatting:
+check-formatting: node_modules
 	@echo '==> Checking formatting'
-	yarn
 	yarn testPrettierAll
 
-format:
+format: node_modules
 	@echo '==> Fixing formatting'
-	yarn
 	yarn fixPrettierAll
 
-unittest:
+unittest: node_modules
 	@echo '==> Running tests'
-	yarn
 	yarn run jest --all
 
 ../owid-grapher-svgs:
@@ -340,6 +265,7 @@ svgtest: ../owid-grapher-svgs
 node_modules: package.json yarn.lock yarn.config.cjs
 	@echo '==> Installing packages'
 	yarn install
+	touch -m $@
 
 itsJustJavascript: node_modules
 	@echo '==> Compiling TS'
@@ -347,12 +273,20 @@ itsJustJavascript: node_modules
 	yarn run tsc -b
 	touch $@
 
+update.chart-entities: itsJustJavascript
+	@echo '==> Updating chart entities table'
+	node --enable-source-maps itsJustJavascript/baker/updateChartEntities.js --all
+
 reindex: itsJustJavascript
 	@echo '==> Reindexing search in Algolia'
 	node --enable-source-maps itsJustJavascript/baker/algolia/configureAlgolia.js
 	node --enable-source-maps itsJustJavascript/baker/algolia/indexToAlgolia.js
 	node --enable-source-maps itsJustJavascript/baker/algolia/indexChartsToAlgolia.js
-	node --enable-source-maps itsJustJavascript/baker/algolia/indexExplorersToAlgolia.js
+	node --enable-source-maps itsJustJavascript/baker/algolia/indexExplorerViewsToAlgolia.js
+
+bench.search: itsJustJavascript
+	@echo '==> Running search benchmarks'
+	@node --enable-source-maps itsJustJavascript/site/search/evaluateSearch.js
 
 clean:
 	rm -rf node_modules itsJustJavascript

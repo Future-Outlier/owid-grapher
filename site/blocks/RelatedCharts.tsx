@@ -1,10 +1,11 @@
 import React, { useState, useRef } from "react"
-import ReactDOM from "react-dom"
 import { orderBy, RelatedChart } from "@ourworldindata/utils"
 import { useEmbedChart } from "../hooks.js"
 import { GalleryArrow, GalleryArrowDirection } from "./GalleryArrow.js"
 import { AllChartsListItem } from "./AllChartsListItem.js"
 import { BAKED_BASE_URL } from "../../settings/clientSettings.js"
+import { GRAPHER_PREVIEW_CLASS } from "../SiteConstants.js"
+import GrapherImage from "../GrapherImage.js"
 
 export const RELATED_CHARTS_CLASS_NAME = "related-charts"
 
@@ -30,7 +31,8 @@ export const RelatedCharts = ({
 
     const isFirstSlideActive = activeChartIdx === 0
     const isLastSlideActive = activeChartIdx === sortedCharts.length - 1
-    const activeChartSlug = sortedCharts[activeChartIdx]?.slug
+    const activeChart = sortedCharts[activeChartIdx]
+    const activeChartSlug = activeChart?.slug
 
     const onClickItem = (event: React.MouseEvent, idx: number) => {
         // Allow opening charts in new tab/window with ⌘+CLICK
@@ -42,6 +44,26 @@ export const RelatedCharts = ({
 
     useEmbedChart(activeChartIdx, refChartContainer)
 
+    const grapherUrl = `${BAKED_BASE_URL}/grapher/${activeChartSlug}`
+
+    const figure = (
+        <figure
+            className={GRAPHER_PREVIEW_CLASS}
+            // Use unique `key` to force React to re-render tree
+            key={activeChartSlug}
+            data-grapher-src={grapherUrl}
+        >
+            <noscript>
+                <a href={grapherUrl}>
+                    <GrapherImage
+                        slug={activeChartSlug}
+                        alt={activeChart?.title}
+                    />
+                </a>
+            </noscript>
+        </figure>
+    )
+
     const singleChartView = (
         <div className={RELATED_CHARTS_CLASS_NAME}>
             <div className="grid grid-cols-12">
@@ -49,11 +71,7 @@ export const RelatedCharts = ({
                     className="related-charts__chart span-cols-7 span-md-cols-12"
                     ref={refChartContainer}
                 >
-                    <figure
-                        // Use unique `key` to force React to re-render tree
-                        key={activeChartSlug}
-                        data-grapher-src={`${BAKED_BASE_URL}/grapher/${activeChartSlug}`}
-                    />
+                    {figure}
                 </div>
             </div>
         </div>
@@ -78,11 +96,7 @@ export const RelatedCharts = ({
                     className="related-charts__chart span-cols-7 span-md-cols-12"
                     ref={refChartContainer}
                 >
-                    <figure
-                        // Use unique `key` to force React to re-render tree
-                        key={activeChartSlug}
-                        data-grapher-src={`${BAKED_BASE_URL}/grapher/${activeChartSlug}`}
-                    />
+                    {figure}
                     <div className="gallery-navigation">
                         <GalleryArrow
                             disabled={isFirstSlideActive}
@@ -110,17 +124,4 @@ export const RelatedCharts = ({
     )
 
     return charts.length === 1 ? singleChartView : multipleChartsView
-}
-
-export const runRelatedCharts = (charts: RelatedChart[]) => {
-    const relatedChartsEl = document.querySelector<HTMLElement>(
-        `.${RELATED_CHARTS_CLASS_NAME}`
-    )
-    if (relatedChartsEl) {
-        const relatedChartsWrapper = relatedChartsEl.parentElement
-        ReactDOM.hydrate(
-            <RelatedCharts showKeyChartsOnly={true} charts={charts} />,
-            relatedChartsWrapper
-        )
-    }
 }

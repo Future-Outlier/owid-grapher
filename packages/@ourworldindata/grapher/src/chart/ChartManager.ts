@@ -34,12 +34,10 @@ export interface ChartManager {
     table: OwidTable
     transformedTable?: OwidTable
 
-    isSelectingData?: boolean
-    startSelectingWhenLineClicked?: boolean // used by lineLabels
     isExportingToSvgOrPng?: boolean
     isRelativeMode?: boolean
     comparisonLines?: ComparisonLineConfig[]
-    hideLegend?: boolean
+    showLegend?: boolean
     tooltips?: TooltipManager["tooltips"]
     baseColorScheme?: ColorSchemeName
     invertColorScheme?: boolean
@@ -85,7 +83,6 @@ export interface ChartManager {
     showNoDataArea?: boolean
 
     annotation?: Annotation
-    resetAnnotation?: () => void
 
     externalLegendFocusBin?: ColorScaleBin | undefined
     disableIntroAnimation?: boolean
@@ -93,6 +90,8 @@ export interface ChartManager {
     missingDataStrategy?: MissingDataStrategy
 
     isNarrow?: boolean
+    isStatic?: boolean
+    isSemiNarrow?: boolean
     isStaticAndSmall?: boolean
     secondaryColorInStaticCharts?: string
 

@@ -1,8 +1,4 @@
-import {
-    formatWordpressEditLink,
-    LongFormPage,
-    PageOverrides,
-} from "../site/LongFormPage.js"
+import { LongFormPage, PageOverrides } from "../site/LongFormPage.js"
 import { BlogIndexPage } from "../site/BlogIndexPage.js"
 import { ChartsIndexPage, ChartIndexItem } from "../site/ChartsIndexPage.js"
 import { DynamicCollectionPage } from "../site/collections/DynamicCollectionPage.js"
@@ -45,16 +41,15 @@ import {
     FormattedPost,
     FullPost,
     JsonError,
-    KeyInsight,
     Url,
     IndexPost,
     mergePartialGrapherConfigs,
     OwidGdocType,
     OwidGdoc,
     OwidGdocDataInsightInterface,
-    extractFormattingOptions,
     DbRawPost,
 } from "@ourworldindata/utils"
+import { extractFormattingOptions } from "../serverUtils/wordpressUtils.js"
 import { FormattingOptions, GrapherInterface } from "@ourworldindata/types"
 import { CountryProfileSpec } from "../site/countryProfileProjects.js"
 import { formatPost } from "./formatWordpressPost.js"
@@ -67,12 +62,7 @@ import {
 } from "../db/db.js"
 import { getPageOverrides, isPageOverridesCitable } from "./pageOverrides.js"
 import { ProminentLink } from "../site/blocks/ProminentLink.js"
-import {
-    KeyInsightsThumbs,
-    KeyInsightsSlides,
-    KEY_INSIGHTS_CLASS_NAME,
-} from "../site/blocks/KeyInsights.js"
-import { formatUrls, KEY_INSIGHTS_H2_CLASSNAME } from "../site/formatting.js"
+import { formatUrls } from "../site/formatting.js"
 
 import { GrapherProgrammaticInterface } from "@ourworldindata/grapher"
 import { ExplorerProgram } from "../explorer/ExplorerProgram.js"
@@ -101,7 +91,6 @@ import {
     getAndLoadGdocBySlug,
     getAndLoadGdocById,
 } from "../db/model/Gdoc/GdocFactory.js"
-import { SiteNavigationStatic } from "../site/SiteNavigation.js"
 
 export const renderToHtmlPage = (element: any) =>
     `<!doctype html>${ReactDOMServer.renderToStaticMarkup(element)}`
@@ -230,10 +219,6 @@ export const renderPreview = async (
 ): Promise<string> => {
     const postApi = await getFullPostByIdFromSnapshot(knex, postId)
     return renderPost(postApi, knex)
-}
-
-export const renderMenuJson = async () => {
-    return JSON.stringify(SiteNavigationStatic)
 }
 
 export const renderPost = async (
@@ -653,9 +638,7 @@ export const renderProminentLinks = async (
                 if (!title) {
                     void logErrorAndMaybeSendToBugsnag(
                         new JsonError(
-                            `No fallback title found for prominent link ${resolvedUrlString} in ${formatWordpressEditLink(
-                                containerPostId
-                            )}. Block removed.`
+                            `No fallback title found for prominent link ${resolvedUrlString} in wordpress post with id ${containerPostId}. Block removed.`
                         )
                     )
                     $block.remove()
@@ -735,6 +718,18 @@ export const renderExplorerPage = async (
             `SELECT id, grapherConfigETL, grapherConfigAdmin FROM variables WHERE id IN (?)`,
             [requiredVariableIds]
         )
+
+        // check if all required variable IDs exist in the database
+        const missingIds = requiredVariableIds.filter(
+            (id) => !partialGrapherConfigRows.find((row) => row.id === id)
+        )
+        if (missingIds.length > 0) {
+            void logErrorAndMaybeSendToBugsnag(
+                new JsonError(
+                    `Referenced variable IDs do not exist in the database for explorer ${program.slug}: ${missingIds.join(", ")}.`
+                )
+            )
+        }
     }
 
     const parseGrapherConfigFromRow = (row: ChartRow): GrapherInterface => {
@@ -830,104 +825,4 @@ const renderExplorerDefaultThumbnail = (): string => {
     return ReactDOMServer.renderToStaticMarkup(
         <img src={`${BAKED_BASE_URL}/default-thumbnail.jpg`} />
     )
-}
-
-export const renderKeyInsights = async (
-    html: string,
-    containerPostId: number
-): Promise<string> => {
-    const $ = cheerio.load(html)
-
-    for (const block of Array.from($("block[type='key-insights']"))) {
-        const $block = $(block)
-        // only selecting <title> and <slug> from direct children, to not match
-        // titles and slugs from individual key insights slides.
-        const title = $block.find("> title").text()
-        const slug = $block.find("> slug").text()
-        if (!title || !slug) {
-            void logErrorAndMaybeSendToBugsnag(
-                new JsonError(
-                    `Title or anchor missing for key insights block, content removed in ${formatWordpressEditLink(
-                        containerPostId
-                    )}.`
-                )
-            )
-            $block.remove()
-            continue
-        }
-
-        const keyInsights = extractKeyInsights($, $block, containerPostId)
-        if (!keyInsights.length) {
-            void logErrorAndMaybeSendToBugsnag(
-                new JsonError(
-                    `No valid key insights found within block, content removed in ${formatWordpressEditLink(
-                        containerPostId
-                    )}`
-                )
-            )
-            $block.remove()
-            continue
-        }
-        const titles = keyInsights.map((keyInsight) => keyInsight.title)
-
-        const rendered = ReactDOMServer.renderToString(
-            <>
-                <h2 id={slug} className={KEY_INSIGHTS_H2_CLASSNAME}>
-                    {title}
-                </h2>
-                <div className={`${KEY_INSIGHTS_CLASS_NAME}`}>
-                    <div className="block-wrapper">
-                        <KeyInsightsThumbs titles={titles} />
-                    </div>
-                    <KeyInsightsSlides insights={keyInsights} />
-                </div>
-            </>
-        )
-
-        $block.replaceWith(rendered)
-    }
-    return $.html()
-}
-
-export const extractKeyInsights = (
-    $: CheerioStatic,
-    $wrapper: Cheerio,
-    containerPostId: number
-): KeyInsight[] => {
-    const keyInsights: KeyInsight[] = []
-
-    for (const block of Array.from(
-        $wrapper.find("block[type='key-insight']")
-    )) {
-        const $block = $(block)
-        // restrictive children selector not strictly necessary here for now but
-        // kept for consistency and evolutions of the block. In the future, key
-        // insights could host other blocks with <title> tags
-        const $title = $block.find("> title")
-        const title = $title.text()
-        const isTitleHidden = $title.attr("is-hidden") === "1"
-        const slug = $block.find("> slug").text()
-        const content = $block.find("> content").html()
-
-        // "!content" is taken literally here. An empty paragraph will return
-        // "\n\n<p></p>\n\n" and will not trigger an error. This can be seen
-        // both as an unexpected behaviour or a feature, depending on the stage
-        // of work (published or WIP).
-        if (!title || !slug || !content) {
-            void logErrorAndMaybeSendToBugsnag(
-                new JsonError(
-                    `Missing title, slug or content for key insight ${
-                        title || slug
-                    }, content removed in ${formatWordpressEditLink(
-                        containerPostId
-                    )}.`
-                )
-            )
-            continue
-        }
-
-        keyInsights.push({ title, isTitleHidden, content, slug })
-    }
-
-    return keyInsights
 }

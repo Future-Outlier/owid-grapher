@@ -1,6 +1,6 @@
 import React from "react"
 import { computed } from "mobx"
-import { Remark } from "react-remark"
+import { Remark, useRemarkSync, UseRemarkSyncOptions } from "react-remark"
 import { remarkPlainLinks } from "./markdown/remarkPlainLinks.js"
 import visit from "unist-util-visit"
 
@@ -35,6 +35,17 @@ function transformDodLinks() {
     }
 }
 
+function RemarkSync({
+    children,
+    ...props
+}: { children: string } & UseRemarkSyncOptions) {
+    return useRemarkSync(children, props)
+}
+
+// NOTE: We currently don't need to render markdown in React. We should be able
+// to render it only during baking/on the server and pass the HTML as string.
+// This way we could reduce the bundle size by not including a markdown library
+// and improve performance.
 export class SimpleMarkdownText extends React.Component<SimpleMarkdownTextProps> {
     @computed get text(): string {
         return this.props.text
@@ -57,15 +68,17 @@ export class SimpleMarkdownText extends React.Component<SimpleMarkdownTextProps>
         return undefined
     }
 
-    render(): JSX.Element | null {
-        return (
-            <Remark
-                rehypePlugins={[transformDodLinks]}
-                remarkPlugins={[remarkPlainLinks]}
-                rehypeReactOptions={this.rehypeReactOptions}
-            >
-                {this.text}
-            </Remark>
+    render(): React.ReactElement | null {
+        const isServer = typeof window === "undefined"
+        const options = {
+            rehypePlugins: [transformDodLinks],
+            remarkPlugins: [remarkPlainLinks],
+            rehypeReactOptions: this.rehypeReactOptions,
+        }
+        return isServer ? (
+            <RemarkSync {...options}>{this.text}</RemarkSync>
+        ) : (
+            <Remark {...options}>{this.text}</Remark>
         )
     }
 }
@@ -74,7 +87,7 @@ export class SimpleMarkdownText extends React.Component<SimpleMarkdownTextProps>
 // etc have switched from HTML to markdown for their sources
 export const HtmlOrSimpleMarkdownText = (props: {
     text: string
-}): JSX.Element => {
+}): React.ReactElement => {
     // check the text for closing a, li or p tags. If
     // one is found, render using dangerouslySetInnerHTML,
     // otherwise use SimpleMarkdownText

@@ -607,6 +607,7 @@ const parseImage = (image: RawBlockImage): EnrichedBlockImage => {
         caption,
         size,
         originalWidth: undefined,
+        hasOutline: false,
         parseErrors: [error],
     })
 
@@ -629,6 +630,18 @@ const parseImage = (image: RawBlockImage): EnrichedBlockImage => {
         ? htmlToSpans(image.value.caption)
         : undefined
 
+    if (
+        image.value.hasOutline &&
+        image.value.hasOutline !== "true" &&
+        image.value.hasOutline !== "false"
+    ) {
+        return createError({
+            message:
+                "If set, image `hasOutline` property must be true or false",
+        })
+    }
+    const hasOutline = Boolean(image.value.hasOutline === "true")
+
     return {
         type: "image",
         filename,
@@ -636,6 +649,7 @@ const parseImage = (image: RawBlockImage): EnrichedBlockImage => {
         alt: image.value.alt,
         caption,
         size,
+        hasOutline,
         originalWidth: undefined,
         parseErrors: [],
     }
@@ -1636,40 +1650,6 @@ function parseExpandableParagraph(
 function parseResearchAndWritingBlock(
     raw: RawBlockResearchAndWriting
 ): EnrichedBlockResearchAndWriting {
-    const createError = (
-        error: ParseError,
-        heading = "",
-        hideAuthors = false,
-        primary = [
-            {
-                value: { url: "" },
-            },
-        ],
-        secondary = [
-            {
-                value: { url: "" },
-            },
-        ],
-        more: EnrichedBlockResearchAndWritingRow = {
-            heading: "",
-            articles: [],
-        },
-        latest: EnrichedBlockResearchAndWritingRow = {
-            heading: "",
-            articles: [],
-        },
-        rows: EnrichedBlockResearchAndWritingRow[] = []
-    ): EnrichedBlockResearchAndWriting => ({
-        type: "research-and-writing",
-        heading,
-        "hide-authors": hideAuthors,
-        primary,
-        secondary,
-        more,
-        latest,
-        rows,
-        parseErrors: [error],
-    })
     const parseErrors: ParseError[] = []
 
     function enrichLink(
@@ -1729,12 +1709,10 @@ function parseResearchAndWritingBlock(
         })
     }
 
-    if (!raw.value.primary)
-        return createError({ message: "Missing primary link" })
     const primary: EnrichedBlockResearchAndWritingLink[] = []
     if (isArray(raw.value.primary)) {
         primary.push(...raw.value.primary.map((link) => enrichLink(link)))
-    } else {
+    } else if (raw.value.primary) {
         primary.push(enrichLink(raw.value.primary))
     }
 
@@ -2305,7 +2283,8 @@ export const parseSocials = (raw: RawBlockSocials): EnrichedBlockSocials => {
     const links: EnrichedSocialLink[] = []
 
     for (const link of raw.value) {
-        if (!link.url) {
+        const url = extractUrl(link.url)
+        if (!url) {
             return createError({
                 message: "Link is missing a url",
             })
@@ -2327,7 +2306,10 @@ export const parseSocials = (raw: RawBlockSocials): EnrichedBlockSocials => {
         }
 
         links.push({
-            url: link.url,
+            url:
+                link.type === "email" && !url.startsWith("mailto:")
+                    ? `mailto:${url}`
+                    : url,
             text: link.text,
             type: link.type,
         })

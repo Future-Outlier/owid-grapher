@@ -1,10 +1,13 @@
 {
-  "name": "owid-thumbnails",
+  "name": "owid-functions",
   "dependencies": {
     "@ourworldindata/grapher": "workspace:^",
     "@ourworldindata/utils": "workspace:^",
-    "itty-router": "^4.0.23",
+    "itty-router": "^5.0.17",
     "stripe": "^14.20.0",
     "svg2png-wasm": "^1.4.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240614.0"
   }
 }

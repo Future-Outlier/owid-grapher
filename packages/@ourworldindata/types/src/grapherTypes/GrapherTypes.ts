@@ -1,4 +1,7 @@
-import { OwidChartDimensionInterface } from "../OwidVariableDisplayConfigInterface.js"
+import {
+    OwidChartDimensionInterface,
+    OwidVariableRoundingMode,
+} from "../OwidVariableDisplayConfigInterface.js"
 import { ColumnSlugs, EntityName } from "../domainTypes/CoreTableTypes.js"
 import { AxisAlign, Position } from "../domainTypes/Layout.js"
 import { Integer, QueryParams, TopicId } from "../domainTypes/Various.js"
@@ -204,7 +207,9 @@ export interface Tickmark {
     solid?: boolean // mostly for labelling domain start (e.g. 0)
 }
 export interface TickFormattingOptions {
+    roundingMode?: OwidVariableRoundingMode
     numDecimalPlaces?: number
+    numSignificantFigures?: number
     unit?: string
     trailingZeroes?: boolean
     spaceBeforeUnit?: boolean
@@ -450,8 +455,6 @@ export enum ColorSchemeName {
     Set2 = "Set2",
     Set3 = "Set3",
     PuBu = "PuBu",
-    "hsv-RdBu" = "hsv-RdBu",
-    "hsv-CyMg" = "hsv-CyMg",
 
     // Custom schemes:
     Magma = "Magma",
@@ -459,7 +462,6 @@ export enum ColorSchemeName {
     Plasma = "Plasma",
     Viridis = "Viridis",
     continents = "continents",
-    ContinentsLines = "ContinentsLines",
     stackedAreaDefault = "stackedAreaDefault",
     "owid-distinct" = "owid-distinct",
     SingleColorDenim = "SingleColorDenim",
@@ -685,4 +687,10 @@ export interface ChartRedirect {
     id: number
     slug: string
     chartId: number
+}
+
+export enum GrapherWindowType {
+    panel = "panel",
+    modal = "modal",
+    drawer = "drawer",
 }

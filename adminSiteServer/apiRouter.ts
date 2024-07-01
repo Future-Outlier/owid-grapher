@@ -2,8 +2,6 @@
 
 import * as lodash from "lodash"
 import * as db from "../db/db.js"
-import { imageStore } from "../db/model/Image.js"
-import { DEPRECATEDgetTopics } from "../db/DEPRECATEDwpdb.js"
 import {
     UNCATEGORIZED_TAG_ID,
     BAKE_ON_CHANGE,
@@ -29,32 +27,39 @@ import {
     fetchS3DataValuesByPath,
     searchVariables,
 } from "../db/model/Variable.js"
+import { getCanonicalUrl } from "@ourworldindata/components"
 import {
-    applyPatch,
-    BulkChartEditResponseRow,
-    BulkGrapherConfigResponse,
     camelCaseProperties,
-    chartBulkUpdateAllowedColumnNamesAndTypes,
     GdocsContentSource,
-    GrapherConfigPatch,
     isEmpty,
     JsonError,
-    OperationContext,
-    OwidGdocJSON,
     OwidGdocPostInterface,
     parseIntOrUndefined,
-    parseToOperation,
     DbRawPostWithGdocPublishStatus,
     SuggestedChartRevisionStatus,
-    variableAnnotationAllowedColumnNamesAndTypes,
-    VariableAnnotationsResponseRow,
     OwidVariableWithSource,
     OwidChartDimensionInterface,
     DimensionProperty,
     TaggableType,
     DbChartTagJoin,
     pick,
+    Json,
+    checkIsGdocPostExcludingFragments,
+    checkIsPlainObjectWithGuard,
 } from "@ourworldindata/utils"
+import { applyPatch } from "../adminShared/patchHelper.js"
+import {
+    OperationContext,
+    parseToOperation,
+} from "../adminShared/SqlFilterSExpression.js"
+import {
+    BulkChartEditResponseRow,
+    BulkGrapherConfigResponse,
+    chartBulkUpdateAllowedColumnNamesAndTypes,
+    GrapherConfigPatch,
+    variableAnnotationAllowedColumnNamesAndTypes,
+    VariableAnnotationsResponseRow,
+} from "../adminShared/AdminSessionTypes.js"
 import {
     DbPlainDatasetTag,
     GrapherInterface,
@@ -73,10 +78,11 @@ import {
     DbRawOrigin,
     DbRawPostGdoc,
     PostsGdocsXImagesTableName,
-    DbInsertPostGdocXImage,
     PostsGdocsLinksTableName,
     PostsGdocsTableName,
     DbPlainDataset,
+    DbInsertUser,
+    FlatTagGraph,
 } from "@ourworldindata/types"
 import {
     getVariableDataRoute,
@@ -95,23 +101,26 @@ import {
     isValidStatus,
 } from "../db/model/SuggestedChartRevision.js"
 import { denormalizeLatestCountryData } from "../baker/countryProfiles.js"
+import {
+    indexIndividualGdocPost,
+    removeIndividualGdocPostFromIndex,
+} from "../baker/algolia/algoliaUtils.js"
 import { References } from "../adminSiteClient/ChartEditor.js"
 import { DeployQueueServer } from "../baker/DeployQueueServer.js"
 import { FunctionalRouter } from "./FunctionalRouter.js"
 import Papa from "papaparse"
 import {
-    postsTable,
     setTagsForPost,
     getTagsByPostId,
     getWordpressPostReferencesByChartId,
     getGdocsPostReferencesByChartId,
 } from "../db/model/Post.js"
 import {
-    checkFullDeployFallback,
     checkHasChanges,
     checkIsLightningUpdate,
+    GdocPublishingAction,
+    getPublishingAction,
 } from "../adminSiteClient/gdocsDeploy.js"
-import { dataSource } from "../db/dataSource.js"
 import { createGdocAndInsertOwidGdocPostContent } from "../db/model/Gdoc/archieToGdoc.js"
 import { logErrorAndMaybeSendToBugsnag } from "../serverUtils/errorLog.js"
 import {
@@ -124,18 +133,29 @@ import {
 } from "./functionalRouterHelpers.js"
 import { getPublishedLinksTo } from "../db/model/Link.js"
 import {
+    getChainedRedirect,
+    getRedirectById,
+    getRedirects,
+    redirectWithSourceExists,
+} from "../db/model/Redirect.js"
+import {
     GdocLinkUpdateMode,
-    createGdocAndInsertIntoDb,
+    createOrLoadGdocById,
     gdocFromJSON,
     getAllGdocIndexItemsOrderedByUpdatedAt,
     getAndLoadGdocById,
     getGdocBaseObjectById,
-    loadGdocFromGdocBase,
     setLinksForGdoc,
     setTagsForGdoc,
+    addImagesToContentGraph,
     updateGdocContentOnly,
     upsertGdoc,
 } from "../db/model/Gdoc/GdocFactory.js"
+import { match } from "ts-pattern"
+import { GdocDataInsight } from "../db/model/Gdoc/GdocDataInsight.js"
+import { GdocHomepage } from "../db/model/Gdoc/GdocHomepage.js"
+import { GdocAuthor } from "../db/model/Gdoc/GdocAuthor.js"
+import path from "path"
 
 const apiRouter = new FunctionalRouter()
 
@@ -183,7 +203,7 @@ async function getLogsByChartId(
 ): Promise<
     {
         userId: number
-        config: string
+        config: Json
         userName: string
         createdAt: Date
     }[]
@@ -203,7 +223,10 @@ async function getLogsByChartId(
         LIMIT 50`,
         [chartId]
     )
-    return logs
+    return logs.map((log) => ({
+        ...log,
+        config: JSON.parse(log.config),
+    }))
 }
 
 const getReferencesByChartId = async (
@@ -590,9 +613,6 @@ getRouteWithROTransaction(
     }
 )
 
-apiRouter.get("/topics.json", async (req, res) => ({
-    topics: await DEPRECATEDgetTopics(),
-}))
 getRouteWithROTransaction(
     apiRouter,
     "/editorData/variables.json",
@@ -1564,7 +1584,6 @@ getRouteWithROTransaction(
         SELECT t.id, t.name, p.name AS parentName
         FROM tags AS t
         JOIN tags AS p ON t.parentId=p.id
-        WHERE p.isBulkImport IS FALSE
     `
         )
         dataset.availableTags = availableTags
@@ -1607,11 +1626,13 @@ putRouteWithRWTransaction(
             datasetId,
         ])
         if (tagRows.length)
-            await db.knexRaw(
-                trx,
-                `INSERT INTO dataset_tags (tagId, datasetId) VALUES (?, ?)`,
-                tagRows
-            )
+            for (const tagRow of tagRows) {
+                await db.knexRaw(
+                    trx,
+                    `INSERT INTO dataset_tags (tagId, datasetId) VALUES (?, ?)`,
+                    tagRow
+                )
+            }
 
         try {
             await syncDatasetToGitRepo(trx, datasetId, {
@@ -1746,6 +1767,69 @@ getRouteWithROTransaction(
 
 getRouteWithROTransaction(
     apiRouter,
+    "/site-redirects.json",
+    async (req, res, trx) => ({ redirects: await getRedirects(trx) })
+)
+
+postRouteWithRWTransaction(
+    apiRouter,
+    "/site-redirects/new",
+    async (req: Request, res, trx) => {
+        const { source, target } = req.body
+        if (await redirectWithSourceExists(trx, source)) {
+            throw new JsonError(
+                `Redirect with source ${source} already exists`,
+                400
+            )
+        }
+        const chainedRedirect = await getChainedRedirect(trx, source, target)
+        if (chainedRedirect) {
+            throw new JsonError(
+                "Creating this redirect would create a chain, redirect from " +
+                    `${chainedRedirect.source} to ${chainedRedirect.target} ` +
+                    "already exists. " +
+                    (target === chainedRedirect.source
+                        ? `Please create the redirect from ${source} to ` +
+                          `${chainedRedirect.target} directly instead.`
+                        : `Please delete the existing redirect and create a ` +
+                          `new redirect from ${chainedRedirect.source} to ` +
+                          `${target} instead.`),
+                400
+            )
+        }
+        const { insertId: id } = await db.knexRawInsert(
+            trx,
+            `INSERT INTO redirects (source, target) VALUES (?, ?)`,
+            [source, target]
+        )
+        await triggerStaticBuild(
+            res.locals.user,
+            `Creating redirect id=${id} source=${source} target=${target}`
+        )
+        return { success: true, redirect: { id, source, target } }
+    }
+)
+
+deleteRouteWithRWTransaction(
+    apiRouter,
+    "/site-redirects/:id",
+    async (req, res, trx) => {
+        const id = expectInt(req.params.id)
+        const redirect = await getRedirectById(trx, id)
+        if (!redirect) {
+            throw new JsonError(`No redirect found for id ${id}`, 404)
+        }
+        await db.knexRaw(trx, `DELETE FROM redirects WHERE id=?`, [id])
+        await triggerStaticBuild(
+            res.locals.user,
+            `Deleting redirect id=${id} source=${redirect.source} target=${redirect.target}`
+        )
+        return { success: true }
+    }
+)
+
+getRouteWithROTransaction(
+    apiRouter,
     "/tags/:tagId.json",
     async (req, res, trx) => {
         const tagId = expectInt(req.params.tagId) as number | null
@@ -1765,12 +1849,11 @@ getRouteWithROTransaction(
                 | "updatedAt"
                 | "parentId"
                 | "slug"
-                | "isBulkImport"
             >
         >(
             trx,
             `-- sql
-        SELECT t.id, t.name, t.specialType, t.updatedAt, t.parentId, t.slug, p.isBulkImport
+        SELECT t.id, t.name, t.specialType, t.updatedAt, t.parentId, t.slug
         FROM tags t LEFT JOIN tags p ON t.parentId=p.id
         WHERE t.id = ?
     `,
@@ -1879,7 +1962,7 @@ getRouteWithROTransaction(
             trx,
             `-- sql
         SELECT t.id, t.name FROM tags t
-        WHERE t.parentId IS NULL AND t.isBulkImport IS FALSE
+        WHERE t.parentId IS NULL
     `
         )
         tag.possibleParents = possibleParents
@@ -1898,8 +1981,8 @@ putRouteWithRWTransaction(
         const tag = (req.body as { tag: any }).tag
         await db.knexRaw(
             trx,
-            `UPDATE tags SET name=?, updatedAt=?, parentId=?, slug=? WHERE id=?`,
-            [tag.name, new Date(), tag.parentId, tag.slug, tagId]
+            `UPDATE tags SET name=?, updatedAt=?, slug=? WHERE id=?`,
+            [tag.name, new Date(), tag.slug, tagId]
         )
         if (tag.slug) {
             // See if there's a published gdoc with a matching slug.
@@ -1907,13 +1990,14 @@ putRouteWithRWTransaction(
             // where the page for the topic is just an article.
             const gdoc = await db.knexRaw<Pick<DbRawPostGdoc, "slug">>(
                 trx,
-                `SELECT slug FROM posts_gdocs pg
-             WHERE EXISTS (
-                    SELECT 1
-                    FROM posts_gdocs_x_tags gt
-                    WHERE pg.id = gt.gdocId AND gt.tagId = ?
-            ) AND pg.published = TRUE`,
-                [tag.id]
+                `-- sql
+                SELECT slug FROM posts_gdocs pg
+                WHERE EXISTS (
+                        SELECT 1
+                        FROM posts_gdocs_x_tags gt
+                        WHERE pg.id = gt.gdocId AND gt.tagId = ?
+                ) AND pg.published = TRUE AND pg.slug = ?`,
+                [tagId, tag.slug]
             )
             if (!gdoc.length) {
                 return {
@@ -1932,31 +2016,48 @@ postRouteWithRWTransaction(
     apiRouter,
     "/tags/new",
     async (req: Request, res, trx) => {
-        const tag = (req.body as { tag: any }).tag
+        const tag = req.body
+        function validateTag(
+            tag: unknown
+        ): tag is { name: string; slug: string | null } {
+            return (
+                checkIsPlainObjectWithGuard(tag) &&
+                typeof tag.name === "string" &&
+                (tag.slug === null ||
+                    (typeof tag.slug === "string" && tag.slug !== ""))
+            )
+        }
+        if (!validateTag(tag)) throw new JsonError("Invalid tag", 400)
+
+        const conflictingTag = await db.knexRawFirst<{
+            name: string
+            slug: string | null
+        }>(
+            trx,
+            `SELECT name, slug FROM tags WHERE name = ? OR (slug IS NOT NULL AND slug = ?)`,
+            [tag.name, tag.slug]
+        )
+        if (conflictingTag)
+            throw new JsonError(
+                conflictingTag.name === tag.name
+                    ? `Tag with name ${tag.name} already exists`
+                    : `Tag with slug ${tag.slug} already exists`,
+                400
+            )
+
         const now = new Date()
         const result = await db.knexRawInsert(
             trx,
-            `INSERT INTO tags (parentId, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`,
-            [tag.parentId, tag.name, now, now]
+            `INSERT INTO tags (name, slug, createdAt, updatedAt) VALUES (?, ?, ?, ?)`,
+            // parentId will be deprecated soon once we migrate fully to the tag graph
+            [tag.name, tag.slug, now, now]
         )
         return { success: true, tagId: result.insertId }
     }
 )
 
 getRouteWithROTransaction(apiRouter, "/tags.json", async (req, res, trx) => {
-    const tags = await db.knexRaw(
-        trx,
-        `-- sql
-        SELECT t.id, t.name, t.parentId, t.specialType
-        FROM tags t LEFT JOIN tags p ON t.parentId=p.id
-        WHERE t.isBulkImport IS FALSE AND (t.parentId IS NULL OR p.isBulkImport IS FALSE)
-        ORDER BY t.name ASC
-    `
-    )
-
-    return {
-        tags,
-    }
+    return { tags: await db.getMinimalTagsWithIsTopic(trx) }
 })
 
 deleteRouteWithRWTransaction(
@@ -2162,7 +2263,7 @@ postRouteWithRWTransaction(
             // which means that we can't wrap this in a transaction. We should probably
             // move posts to use typeorm as well or at least have a typeorm alternative for it
             await trx
-                .table(postsTable)
+                .table(PostsTableName)
                 .where({ id: postId })
                 .update("gdocSuccessorId", gdocId)
 
@@ -2205,11 +2306,14 @@ postRouteWithRWTransaction(
         // which means that we can't wrap this in a transaction. We should probably
         // move posts to use typeorm as well or at least have a typeorm alternative for it
         await trx
-            .table(postsTable)
+            .table(PostsTableName)
             .where({ id: postId })
             .update("gdocSuccessorId", null)
 
-        await dataSource.getRepository(GdocPost).delete(existingGdocId)
+        await trx
+            .table(PostsGdocsTableName)
+            .where({ id: existingGdocId })
+            .delete()
 
         return { success: true }
     }
@@ -2263,6 +2367,7 @@ getRouteNonIdempotentWithRWTransaction(
             | undefined
 
         try {
+            // Beware: if contentSource=gdocs this will update images in the DB+S3 even if the gdoc is published
             const gdoc = await getAndLoadGdocById(trx, id, contentSource)
 
             if (!gdoc.published) {
@@ -2281,66 +2386,80 @@ getRouteNonIdempotentWithRWTransaction(
 )
 
 /**
+ * Handles all four `GdocPublishingAction` cases
+ * - SavingDraft (no action)
+ * - Publishing (index and bake)
+ * - Updating (index and bake (potentially via lightning deploy))
+ * - Unpublishing (remove from index and bake)
+ */
+async function indexAndBakeGdocIfNeccesary(
+    trx: db.KnexReadWriteTransaction,
+    user: Required<DbInsertUser>,
+    prevGdoc: GdocPost | GdocDataInsight | GdocHomepage | GdocAuthor,
+    nextGdoc: GdocPost | GdocDataInsight | GdocHomepage | GdocAuthor
+) {
+    const prevJson = prevGdoc.toJSON()
+    const nextJson = nextGdoc.toJSON()
+    const hasChanges = checkHasChanges(prevGdoc, nextGdoc)
+    const action = getPublishingAction(prevJson, nextJson)
+    const isGdocPost = checkIsGdocPostExcludingFragments(nextJson)
+
+    await match(action)
+        .with(GdocPublishingAction.SavingDraft, lodash.noop)
+        .with(GdocPublishingAction.Publishing, async () => {
+            if (isGdocPost) {
+                await indexIndividualGdocPost(
+                    nextJson,
+                    trx,
+                    // If the gdoc is being published for the first time, prevGdoc.slug will be undefined
+                    // In that case, we pass nextJson.slug to see if it has any page views (i.e. from WP)
+                    prevGdoc.slug || nextJson.slug
+                )
+            }
+            await triggerStaticBuild(user, `${action} ${nextJson.slug}`)
+        })
+        .with(GdocPublishingAction.Updating, async () => {
+            if (isGdocPost) {
+                await indexIndividualGdocPost(nextJson, trx, prevGdoc.slug)
+            }
+            if (checkIsLightningUpdate(prevJson, nextJson, hasChanges)) {
+                await enqueueLightningChange(
+                    user,
+                    `Lightning update ${nextJson.slug}`,
+                    nextJson.slug
+                )
+            } else {
+                await triggerStaticBuild(user, `${action} ${nextJson.slug}`)
+            }
+        })
+        .with(GdocPublishingAction.Unpublishing, async () => {
+            if (isGdocPost) {
+                await removeIndividualGdocPostFromIndex(nextJson)
+            }
+            await triggerStaticBuild(user, `${action} ${nextJson.slug}`)
+        })
+        .exhaustive()
+}
+
+/**
  * Only supports creating a new empty Gdoc or updating an existing one. Does not
  * support creating a new Gdoc from an existing one. Relevant updates will
  * trigger a deploy.
  */
 putRouteWithRWTransaction(apiRouter, "/gdocs/:id", async (req, res, trx) => {
     const { id } = req.params
-    const nextGdocJSON: OwidGdocJSON = req.body
 
-    if (isEmpty(nextGdocJSON)) {
-        // Check to see if the gdoc already exists in the database
-        const existingGdoc = await getGdocBaseObjectById(trx, id, false)
-        if (existingGdoc) {
-            return loadGdocFromGdocBase(
-                trx,
-                existingGdoc,
-                GdocsContentSource.Gdocs
-            )
-        } else {
-            return createGdocAndInsertIntoDb(trx, id)
-        }
+    if (isEmpty(req.body)) {
+        return createOrLoadGdocById(trx, id)
     }
 
     const prevGdoc = await getAndLoadGdocById(trx, id)
     if (!prevGdoc) throw new JsonError(`No Google Doc with id ${id} found`)
 
-    const nextGdoc = gdocFromJSON(nextGdocJSON)
+    const nextGdoc = gdocFromJSON(req.body)
     await nextGdoc.loadState(trx)
 
-    // Deleting and recreating these is simpler than tracking orphans over the next code block
-    await trx.table(PostsGdocsXImagesTableName).where({ gdocId: id }).delete()
-    const filenames = nextGdoc.filenames
-
-    // The concept of a "published gdoc" is looser here than in
-    // Gdoc.getPublishedGdocs(), where published gdoc fragments are filtered out.
-    // Here, published fragments are captured by nextGdoc.published, which
-    // allows images in published fragments (in particular data pages) to be
-    // synced to S3 and ultimately baked in bakeDriveImages().
-    if (filenames.length && nextGdoc.published) {
-        await imageStore.fetchImageMetadata(filenames)
-        const images = await imageStore.syncImagesToS3(trx)
-        const gdocXImagesToInsert: DbInsertPostGdocXImage[] = []
-        for (const image of images) {
-            if (image) {
-                gdocXImagesToInsert.push({
-                    gdocId: nextGdoc.id,
-                    imageId: image.id,
-                })
-            }
-        }
-        try {
-            await trx
-                .table(PostsGdocsXImagesTableName)
-                .insert(gdocXImagesToInsert)
-        } catch (e) {
-            console.error(
-                `Error tracking image references with Google ID ${nextGdoc.id}`,
-                e
-            )
-        }
-    }
+    await addImagesToContentGraph(trx, nextGdoc)
 
     await setLinksForGdoc(
         trx,
@@ -2351,43 +2470,9 @@ putRouteWithRWTransaction(apiRouter, "/gdocs/:id", async (req, res, trx) => {
             : GdocLinkUpdateMode.DeleteOnly
     )
 
-    //todo #gdocsvalidationserver: run validation before saving published
-    //articles, in addition to the first pass performed in front-end code (see
-    //#gdocsvalidationclient)
-
-    // If the deploy fails, the article would still be considered "published".
-    // Saving the article after enqueueing the change for deploy wouldn't solve
-    // this issue since the deploy queue runs indenpendently. It would simply
-    // prevent the change to be saved in the DB in case the enqueueing fails,
-    // which is unlikely. On the other hand, reversing the order "save then
-    // enqueue" might run the risk of a race condition, by which the deploy
-    // queue picks up the deploy before the store is updated, thus re-publishing
-    // the current unmodified version.
-
-    // Neither of these scenarios is very likely (race condition or failure to
-    // enqueue), so I opted for the version that matches the closest the current
-    // baking model, which is "bake what is persisted in the DB". Ultimately, a
-    // full sucessful deploy would resolve the state discrepancy either way.
     await upsertGdoc(trx, nextGdoc)
 
-    const hasChanges = checkHasChanges(prevGdoc, nextGdoc)
-    const prevJson = prevGdoc.toJSON()
-    const nextJson = nextGdoc.toJSON()
-    if (checkIsLightningUpdate(prevJson, nextJson, hasChanges)) {
-        await enqueueLightningChange(
-            res.locals.user,
-            `Lightning update ${nextJson.slug}`,
-            nextJson.slug
-        )
-    } else if (checkFullDeployFallback(prevJson, nextJson, hasChanges)) {
-        const action =
-            prevJson.published && nextJson.published
-                ? "Updating"
-                : !prevJson.published && nextJson.published
-                  ? "Publishing"
-                  : "Unpublishing"
-        await triggerStaticBuild(res.locals.user, `${action} ${nextJson.slug}`)
-    }
+    await indexAndBakeGdocIfNeccesary(trx, res.locals.user, prevGdoc, nextGdoc)
 
     return nextGdoc
 })
@@ -2406,6 +2491,18 @@ deleteRouteWithRWTransaction(apiRouter, "/gdocs/:id", async (req, res, trx) => {
     await trx.table(PostsGdocsLinksTableName).where({ sourceId: id }).delete()
     await trx.table(PostsGdocsXImagesTableName).where({ gdocId: id }).delete()
     await trx.table(PostsGdocsTableName).where({ id }).delete()
+    if (gdoc.published && checkIsGdocPostExcludingFragments(gdoc)) {
+        await removeIndividualGdocPostFromIndex(gdoc)
+    }
+    // Assets have TTL of one week in Cloudflare. Add a redirect to make sure
+    // the page is no longer accessible.
+    // https://developers.cloudflare.com/pages/configuration/serving-pages/#asset-retention
+    await db.knexRawInsert(
+        trx,
+        `INSERT INTO redirects (source, target, ttl)
+         VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 8 DAY))`,
+        [getCanonicalUrl("", gdoc), "/"]
+    )
     await triggerStaticBuild(res.locals.user, `Deleting ${gdoc.slug}`)
     return {}
 })
@@ -2481,5 +2578,166 @@ deleteRouteWithRWTransaction(
         return { success: true }
     }
 )
+
+// Get an ArchieML output of all the work produced by an author. This includes
+// gdoc articles, gdoc modular/linear topic pages and wordpress modular topic
+// pages. Data insights are excluded. This is used to manually populate the
+// [.secondary] section of the {.research-and-writing} block of author pages
+// using the alternate template, which highlights topics rather than articles.
+getRouteWithROTransaction(apiRouter, "/all-work", async (req, res, trx) => {
+    type WordpressPageRecord = {
+        isWordpressPage: number
+    } & Record<
+        "slug" | "title" | "subtitle" | "thumbnail" | "authors" | "publishedAt",
+        string
+    >
+    type GdocRecord = Pick<DbRawPostGdoc, "id" | "publishedAt">
+
+    const author = req.query.author || "Max Roser"
+    const gdocs = await db.knexRaw<GdocRecord>(
+        trx,
+        `-- sql
+            SELECT id, publishedAt
+            FROM posts_gdocs
+            WHERE JSON_CONTAINS(content->'$.authors', '"${author}"')
+            AND type NOT IN ("data-insight", "fragment")
+            AND published = 1
+    `
+    )
+
+    // type: page
+    const wpModularTopicPages = await db.knexRaw<WordpressPageRecord>(
+        trx,
+        `-- sql
+        SELECT
+            wpApiSnapshot->>"$.slug" as slug,
+            wpApiSnapshot->>"$.title.rendered" as title,
+            wpApiSnapshot->>"$.excerpt.rendered" as subtitle,
+            TRUE as isWordpressPage,
+            wpApiSnapshot->>"$.authors_name" as authors,
+            wpApiSnapshot->>"$.featured_media_paths.medium_large" as thumbnail,
+            wpApiSnapshot->>"$.date" as publishedAt
+        FROM posts p
+        WHERE wpApiSnapshot->>"$.content" LIKE '%topic-page%'
+        AND JSON_CONTAINS(wpApiSnapshot->'$.authors_name', '"${author}"')
+        AND wpApiSnapshot->>"$.status" = 'publish'
+        AND NOT EXISTS (
+            SELECT 1 FROM posts_gdocs pg
+            WHERE pg.slug = p.slug
+            AND pg.content->>'$.type' LIKE '%topic-page'
+        )
+        `
+    )
+
+    const isWordpressPage = (
+        post: WordpressPageRecord | GdocRecord
+    ): post is WordpressPageRecord =>
+        (post as WordpressPageRecord).isWordpressPage === 1
+
+    function* generateProperty(key: string, value: string) {
+        yield `${key}: ${value}\n`
+    }
+
+    const sortByDateDesc = (
+        a: GdocRecord | WordpressPageRecord,
+        b: GdocRecord | WordpressPageRecord
+    ): number => {
+        if (!a.publishedAt || !b.publishedAt) return 0
+        return (
+            new Date(b.publishedAt).getTime() -
+            new Date(a.publishedAt).getTime()
+        )
+    }
+
+    function* generateAllWorkArchieMl() {
+        for (const post of [...gdocs, ...wpModularTopicPages].sort(
+            sortByDateDesc
+        )) {
+            if (isWordpressPage(post)) {
+                yield* generateProperty(
+                    "url",
+                    `https://ourworldindata.org/${post.slug}`
+                )
+                yield* generateProperty("title", post.title)
+                yield* generateProperty("subtitle", post.subtitle)
+                yield* generateProperty(
+                    "authors",
+                    JSON.parse(post.authors).join(", ")
+                )
+                const parsedPath = path.parse(post.thumbnail)
+                yield* generateProperty(
+                    "filename",
+                    // /app/uploads/2021/09/reducing-fertilizer-768x301.png -> reducing-fertilizer.png
+                    path.format({
+                        name: parsedPath.name.replace(/-\d+x\d+$/, ""),
+                        ext: parsedPath.ext,
+                    })
+                )
+                yield "\n"
+            } else {
+                // this is a gdoc
+                yield* generateProperty(
+                    "url",
+                    `https://docs.google.com/document/d/${post.id}/edit`
+                )
+                yield "\n"
+            }
+        }
+    }
+
+    res.type("text/plain")
+    return [...generateAllWorkArchieMl()].join("")
+})
+
+getRouteWithROTransaction(
+    apiRouter,
+    "/flatTagGraph.json",
+    async (req, res, trx) => {
+        const flatTagGraph = await db.getFlatTagGraph(trx)
+        return flatTagGraph
+    }
+)
+
+postRouteWithRWTransaction(apiRouter, "/tagGraph", async (req, res, trx) => {
+    const tagGraph = req.body?.tagGraph as unknown
+    if (!tagGraph) {
+        throw new JsonError("No tagGraph provided", 400)
+    }
+
+    function validateFlatTagGraph(
+        tagGraph: Record<any, any>
+    ): tagGraph is FlatTagGraph {
+        if (lodash.isObject(tagGraph)) {
+            for (const [key, value] of Object.entries(tagGraph)) {
+                if (!lodash.isString(key) && isNaN(Number(key))) {
+                    return false
+                }
+                if (!lodash.isArray(value)) {
+                    return false
+                }
+                for (const tag of value) {
+                    if (
+                        !(
+                            checkIsPlainObjectWithGuard(tag) &&
+                            lodash.isNumber(tag.weight) &&
+                            lodash.isNumber(tag.parentId) &&
+                            lodash.isNumber(tag.childId)
+                        )
+                    ) {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+    const isValid = validateFlatTagGraph(tagGraph)
+    if (!isValid) {
+        throw new JsonError("Invalid tag graph provided", 400)
+    }
+    await db.updateTagGraph(trx, tagGraph)
+    res.send({ success: true })
+})
 
 export { apiRouter }

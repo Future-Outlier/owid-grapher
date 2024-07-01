@@ -7,6 +7,7 @@
     background-color: $blue-10;
     color: $blue-90;
     margin-bottom: 48px;
+    z-index: $zindex-extended-header;
 
     h1 {
         margin-bottom: 0;
@@ -20,12 +21,17 @@
         margin: 0;
     }
 
-    p.topic-page-header__byline,
-    .topic-page-header__byline a {
-        color: $blue-60;
+    p.topic-page-header__byline {
         margin-bottom: 0;
+        color: $blue-60;
         @include sm-only {
             font-size: 0.875rem;
+        }
+    }
+    .topic-page-header__byline a {
+        @include owid-link-60;
+        &:visited {
+            color: inherit;
         }
     }
 
@@ -35,10 +41,6 @@
         @include sm-only {
             margin-bottom: 16px;
         }
-    }
-
-    .topic-page-header__byline a:hover {
-        color: $vermillion;
     }
 
     + .sticky-nav {
@@ -148,7 +150,7 @@
 }
 
 // small amount of extra padding to match figma designs which is 40px total for key-insights heading
-.article-block__heading + .wp-block-owid-key-insights {
+.article-block__heading + .key-insights {
     margin-top: 8px;
 }
 

@@ -19,6 +19,10 @@ export enum EventCategory {
     KeyboardShortcut = "owid.keyboard_shortcut",
     SiteClick = "owid.site_click",
     SiteError = "owid.site_error",
+    SiteSearchClick = "owid.site_search_click",
+    SiteSearchFilterClick = "owid.site_search_filter_click",
+    SiteInstantSearchClick = "owid.site_instantsearch_click",
+    DetailOnDemand = "owid.detail_on_demand",
 }
 
 enum EventAction {

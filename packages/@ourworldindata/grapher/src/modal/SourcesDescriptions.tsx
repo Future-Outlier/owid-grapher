@@ -1,5 +1,5 @@
 import React from "react"
-import { faArrowDown } from "@fortawesome/free-solid-svg-icons/faArrowDown"
+import { faArrowDown } from "@fortawesome/free-solid-svg-icons"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
 import {
     ExpandableToggle,
@@ -60,8 +60,8 @@ export const SourcesDescriptions = (props: SourcesDescriptionsProps) => {
                     <ExpandableToggle
                         label={
                             props.attributionShort
-                                ? `How does the producer of this data - ${props.attributionShort} - describe this data?`
-                                : "How does the producer of this data describe this data?"
+                                ? `How is this data described by its producer - ${props.attributionShort}?`
+                                : "How is this data described by its producer?"
                         }
                         content={
                             <SimpleMarkdownText

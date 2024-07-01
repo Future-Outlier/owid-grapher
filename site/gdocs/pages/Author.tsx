@@ -22,6 +22,10 @@ const AuthorHeader = (gdoc: OwidGdocAuthorInterface) => {
         socials,
     } = gdoc.content
 
+    // ✋ This component has two versions, one for small screens and one for
+    // medium and up. The medium version is hidden on small screens and vice
+    // versa. Please make sure to keep the two versions in sync when applicable.
+
     return (
         <div className="author-header grid grid-cols-12-full-width span-cols-14">
             <section className="author-header__sm grid grid-cols-12-full-width span-cols-14">
@@ -38,6 +42,7 @@ const AuthorHeader = (gdoc: OwidGdocAuthorInterface) => {
                                 "author-header__portrait",
                                 getLayout("image", "author-header")
                             )}
+                            shouldLightbox={false}
                             containerType="author-header"
                         />
                     </div>
@@ -50,11 +55,9 @@ const AuthorHeader = (gdoc: OwidGdocAuthorInterface) => {
                 )}
             </section>
             <section className="author-header__md grid grid-cols-12-full-width span-cols-14">
-                <div className="grid grid-cols-8 span-cols-8 col-start-2">
-                    <h1 className="author-header__name span-cols-8">{title}</h1>
-                    <div className="author-header__role span-cols-8">
-                        {role}
-                    </div>
+                <div className="span-cols-8 col-start-2 span-md-cols-7 col-md-start-2">
+                    <h1 className="author-header__name">{title}</h1>
+                    <div className="author-header__role">{role}</div>
                     {bio?.length && (
                         <ArticleBlocks
                             blocks={bio}
@@ -62,7 +65,7 @@ const AuthorHeader = (gdoc: OwidGdocAuthorInterface) => {
                         />
                     )}
                 </div>
-                <div className="grid grid-cols-3 col-start-11 span-cols-3">
+                <div className="grid grid-cols-3 col-start-11 span-cols-3 span-md-cols-4 col-md-start-10">
                     {featuredImage && (
                         <Image
                             filename={featuredImage}
@@ -71,6 +74,7 @@ const AuthorHeader = (gdoc: OwidGdocAuthorInterface) => {
                                 "author-header__portrait",
                                 getLayout("image", "author-header")
                             )}
+                            shouldLightbox={false}
                             containerType="author-header"
                         />
                     )}
@@ -94,7 +98,7 @@ export const AuthorWork = ({ blocks }: { blocks: OwidEnrichedGdocBlock[] }) => {
     )
 }
 
-export const Author = (gdoc: OwidGdocAuthorInterface): JSX.Element => {
+export const Author = (gdoc: OwidGdocAuthorInterface): React.ReactElement => {
     return (
         <>
             <AuthorHeader {...gdoc} />

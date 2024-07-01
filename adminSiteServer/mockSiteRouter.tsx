@@ -5,7 +5,6 @@ import {
     renderGdocsPageBySlug,
     renderPageBySlug,
     renderChartsPage,
-    renderMenuJson,
     renderSearchPage,
     renderDonatePage,
     entriesByYearPage,
@@ -24,9 +23,9 @@ import {
 } from "../baker/siteRenderers.js"
 import {
     BAKED_BASE_URL,
-    WORDPRESS_DIR,
     BASE_DIR,
     BAKED_SITE_DIR,
+    LEGACY_WORDPRESS_IMAGE_URL,
 } from "../settings/serverSettings.js"
 
 import { expectInt, renderToHtmlPage } from "../serverUtils/serverUtil.js"
@@ -374,21 +373,6 @@ getPlainRouteNonIdempotentWithRWTransaction(
     }
 )
 
-mockSiteRouter.get("/headerMenu.json", async (req, res) => {
-    res.contentType("application/json")
-    res.send(await renderMenuJson())
-})
-
-mockSiteRouter.use(
-    // Not all /app/uploads paths are going through formatting
-    // and being rewritten as /uploads. E.g. blog index images paths
-    // on front page.
-    ["/uploads", "/app/uploads"],
-    express.static(path.join(WORDPRESS_DIR, "web/app/uploads"), {
-        fallthrough: false,
-    })
-)
-
 mockSiteRouter.use(
     "/images/published",
     express.static(path.join(DEFAULT_LOCAL_BAKE_DIR, "images/published"), {
@@ -396,6 +380,20 @@ mockSiteRouter.use(
     })
 )
 
+mockSiteRouter.use(
+    // Not all /app/uploads paths are going through formatting
+    // and being rewritten as /uploads. E.g. blog index images paths
+    // on front page.
+    ["/uploads", "/app/uploads"],
+    (req, res) => {
+        const assetPath = req.path.replace(/^\/(app\/)?uploads\//, "")
+        // Ensure no trailing slash on the base URL and manage the slash between URLs safely
+        const baseUrl = LEGACY_WORDPRESS_IMAGE_URL.replace(/\/+$/, "")
+        const path = assetPath.replace(/^\/+/, "")
+        const assetUrl = `${baseUrl}/${path}`
+        res.redirect(assetUrl)
+    }
+)
 mockSiteRouter.use(
     "/exports",
     express.static(path.join(BAKED_SITE_DIR, "exports"))
@@ -476,6 +474,23 @@ getPlainRouteWithROTransaction(
     }
 )
 
+getPlainRouteNonIdempotentWithRWTransaction(
+    mockSiteRouter,
+    "/team/:authorSlug",
+    async (req, res, trx) => {
+        try {
+            // We assume here that author slugs are unique across all gdocs (not
+            // just author gdocs)
+            const page = await renderGdocsPageBySlug(trx, req.params.authorSlug)
+            res.send(page)
+            return
+        } catch (e) {
+            console.error(e)
+            res.status(404).send(renderNotFoundPage())
+        }
+    }
+)
+
 // TODO: this transaction is only RW because somewhere inside it we fetch images
 getPlainRouteNonIdempotentWithRWTransaction(
     mockSiteRouter,
@@ -486,6 +501,7 @@ getPlainRouteNonIdempotentWithRWTransaction(
         try {
             const page = await renderGdocsPageBySlug(trx, slug)
             res.send(page)
+            return
         } catch (e) {
             console.error(e)
         }
@@ -495,7 +511,7 @@ getPlainRouteNonIdempotentWithRWTransaction(
             res.send(page)
         } catch (e) {
             console.error(e)
-            res.status(404).send(await renderNotFoundPage())
+            res.status(404).send(renderNotFoundPage())
         }
     }
 )

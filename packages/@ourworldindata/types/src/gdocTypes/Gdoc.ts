@@ -12,8 +12,11 @@ import {
     RefDictionary,
 } from "./ArchieMlComponents.js"
 import { DbChartTagJoin } from "../dbTypes/ChartTags.js"
-import { DbPlainTag } from "../dbTypes/Tags.js"
-import { DbEnrichedLatestWork } from "../domainTypes/Author.js"
+import { MinimalTag } from "../dbTypes/Tags.js"
+import {
+    DbEnrichedAuthor,
+    DbEnrichedLatestWork,
+} from "../domainTypes/Author.js"
 
 export enum OwidGdocPublicationContext {
     unlisted = "unlisted",
@@ -67,12 +70,13 @@ export interface OwidGdocBaseInterface {
     revisionId: string | null
     publicationContext: OwidGdocPublicationContext
     breadcrumbs: BreadcrumbItem[] | null
+    linkedAuthors?: DbEnrichedAuthor[]
     linkedDocuments?: Record<string, OwidGdocMinimalPostInterface>
     linkedCharts?: Record<string, LinkedChart>
     linkedIndicators?: Record<number, LinkedIndicator>
     imageMetadata?: Record<string, ImageMetadata>
     relatedCharts?: RelatedChart[]
-    tags?: DbPlainTag[] | null
+    tags?: MinimalTag[] | null
     errors?: OwidGdocErrorMessage[]
     markdown: string | null
 }

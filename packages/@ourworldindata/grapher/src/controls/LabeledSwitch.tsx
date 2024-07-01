@@ -12,7 +12,7 @@ export class LabeledSwitch extends React.Component<{
     tracking?: string
     onToggle: () => any
 }> {
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { label, value, tooltip, tracking } = this.props
 
         return (
@@ -31,9 +31,8 @@ export class LabeledSwitch extends React.Component<{
                     {tooltip && (
                         <Tippy
                             content={tooltip}
-                            theme="settings"
+                            theme="grapher-explanation"
                             placement="top"
-                            // arrow={false}
                             maxWidth={338}
                         >
                             <FontAwesomeIcon icon={faInfoCircle} />

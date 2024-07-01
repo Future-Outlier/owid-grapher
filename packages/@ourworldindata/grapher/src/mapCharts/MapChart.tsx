@@ -1,7 +1,5 @@
 import React from "react"
 import {
-    anyToString,
-    isNumber,
     Bounds,
     DEFAULT_BOUNDS,
     flatten,
@@ -53,10 +51,7 @@ import {
 } from "../color/ColorScaleBin"
 import * as topojson from "topojson-client"
 import { MapTopology } from "./MapTopology"
-import {
-    WorldRegionName,
-    WorldRegionToProjection,
-} from "./WorldRegionsToProjection"
+import { getCountriesByProjection } from "./WorldRegionsToProjection"
 import {
     ColorSchemeName,
     MapProjectionName,
@@ -325,19 +320,18 @@ export class MapChart
         this.mapConfig.projection = value
     }
 
-    @computed private get formatTooltipValue(): (d: PrimitiveType) => string {
-        const { mapConfig, mapColumn, colorScale } = this
+    @computed private get formatTooltipValueIfCustom(): (
+        d: PrimitiveType
+    ) => string | undefined {
+        const { mapConfig, colorScale } = this
 
-        return (d: PrimitiveType): string => {
-            if (mapConfig.tooltipUseCustomLabels) {
-                // Find the bin (and its label) that this value belongs to
-                const bin = colorScale.getBinForValue(d)
-                const label = bin?.label
-                if (label !== undefined && label !== "") return label
-            }
-            return isNumber(d)
-                ? mapColumn?.formatValueShort(d) ?? ""
-                : anyToString(d)
+        return (d: PrimitiveType): string | undefined => {
+            if (!mapConfig.tooltipUseCustomLabels) return undefined
+            // Find the bin (and its label) that this value belongs to
+            const bin = colorScale.getBinForValue(d)
+            const label = bin?.label
+            if (label !== undefined && label !== "") return label
+            else return undefined
         }
     }
 
@@ -581,7 +575,7 @@ export class MapChart
         return this.manager.isStaticAndSmall ? 2 : undefined
     }
 
-    renderMapLegend(): JSX.Element {
+    renderMapLegend(): React.ReactElement {
         const { numericLegend, categoryLegend } = this
 
         return (
@@ -596,7 +590,7 @@ export class MapChart
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -620,7 +614,7 @@ export class MapChart
                     <MapTooltip
                         tooltipState={tooltipState}
                         timeSeriesTable={this.inputTable}
-                        formatValue={this.formatTooltipValue}
+                        formatValueIfCustom={this.formatTooltipValueIfCustom}
                         manager={this.manager}
                         colorScaleManager={this}
                         targetTime={this.targetTime}
@@ -707,7 +701,7 @@ class ChoroplethMap extends React.Component<{
             Africa: { x: 0.49, y: 0.7, width: 0.21, height: 0.38 },
             NorthAmerica: { x: 0.49, y: 0.4, width: 0.19, height: 0.32 },
             SouthAmerica: { x: 0.52, y: 0.815, width: 0.1, height: 0.26 },
-            Asia: { x: 0.75, y: 0.45, width: 0.3, height: 0.5 },
+            Asia: { x: 0.74, y: 0.45, width: 0.36, height: 0.5 },
             Oceania: { x: 0.51, y: 0.75, width: 0.1, height: 0.2 },
         }
 
@@ -762,12 +756,11 @@ class ChoroplethMap extends React.Component<{
         const features = renderFeaturesFor(projection)
         if (projection === MapProjectionName.World) return features
 
-        return features.filter(
-            (feature) =>
-                projection ===
-                (WorldRegionToProjection[
-                    feature.id as WorldRegionName
-                ] as any as MapProjectionName)
+        const countriesByProjection = getCountriesByProjection(projection)
+        if (countriesByProjection === undefined) return []
+
+        return features.filter((feature) =>
+            countriesByProjection.has(feature.id)
         )
     }
 
@@ -841,7 +834,7 @@ class ChoroplethMap extends React.Component<{
 
     // SVG layering is based on order of appearance in the element tree (later elements rendered on top)
     // The ordering here is quite careful
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const {
             uid,
             bounds,

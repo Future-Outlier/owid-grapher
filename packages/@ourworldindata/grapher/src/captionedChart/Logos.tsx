@@ -7,6 +7,7 @@ import {
     SMALL_OWID_LOGO_SVG,
 } from "./LogosSVG"
 import { LogoOption } from "@ourworldindata/types"
+import { makeIdForHumanConsumption } from "@ourworldindata/utils"
 
 interface LogoAttributes {
     svg: string
@@ -86,12 +87,13 @@ export class Logo {
         return this.spec.height * this.scale
     }
 
-    renderSVG(targetX: number, targetY: number): JSX.Element {
+    renderSVG(targetX: number, targetY: number): React.ReactElement {
         const { scale } = this
         const svg =
             (this.spec.svg.match(/<svg>(.*)<\/svg>/) || "")[1] || this.spec.svg
         return (
             <g
+                id={makeIdForHumanConsumption("logo")}
                 transform={`translate(${Math.round(
                     targetX
                 )}, ${targetY}) scale(${parseFloat(scale.toFixed(2))})`}
@@ -100,7 +102,7 @@ export class Logo {
         )
     }
 
-    renderHTML(): JSX.Element {
+    renderHTML(): React.ReactElement {
         const { spec } = this
         const props: React.HTMLAttributes<HTMLElement> = {
             className: "logo",

@@ -13,24 +13,24 @@ set -o nounset
 
 echo '==> Starting & initializing Mysql instance for testing'
 
-docker-compose -f docker-compose.dbtests.yml up -d
+docker compose -f docker-compose.dbtests.yml up -d
 
 ./devTools/docker/wait-for-tests-mysql.sh
 
 echo '==> Running migrations'
 
-yarn typeorm migration:run -d itsJustJavascript/db/tests/dataSource.dbtests.js
+yarn tsx --tsconfig tsconfig.tsx.json node_modules/typeorm/cli.js migration:run -d db/tests/dataSource.dbtests.ts
 
 echo '==> Running tests'
 if ! yarn run jest --config=jest.db.config.js --runInBand # runInBand runs multiple test files serially - useful to avoid weird race conditions
 then
     echo '💀 Tests failed'
     ./devTools/docker/mark-test-mysql-dirty.sh
-    docker-compose -f docker-compose.dbtests.yml stop
+    docker compose -f docker-compose.dbtests.yml stop
     exit 23
 else
     echo '✅ DB tests succeeded'
     ./devTools/docker/mark-test-mysql-dirty.sh
-    docker-compose -f docker-compose.dbtests.yml stop
+    docker compose -f docker-compose.dbtests.yml stop
     exit 0
 fi

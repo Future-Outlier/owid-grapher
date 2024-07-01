@@ -2,7 +2,12 @@ import React from "react"
 import { computed } from "mobx"
 import { scaleLinear, ScaleLinear } from "d3-scale"
 import { TextWrap } from "@ourworldindata/components"
-import { first, last } from "@ourworldindata/utils"
+import {
+    first,
+    last,
+    makeIdForHumanConsumption,
+    OwidVariableRoundingMode,
+} from "@ourworldindata/utils"
 import {
     BASE_FONT_SIZE,
     GRAPHER_DARK_TEXT,
@@ -160,7 +165,7 @@ export class ScatterSizeLegend {
         return undefined
     }
 
-    private renderLegend(targetX: number, targetY: number): JSX.Element {
+    private renderLegend(targetX: number, targetY: number): React.ReactElement {
         const { highlight } = this
         const cx = targetX + this.maxWidth / 2
         return (
@@ -171,7 +176,11 @@ export class ScatterSizeLegend {
                         <LegendItem
                             key={value}
                             label={this.manager.sizeColumn.formatValueShortWithAbbreviations(
-                                value
+                                value,
+                                {
+                                    roundingMode:
+                                        OwidVariableRoundingMode.decimalPlaces,
+                                }
                             )}
                             cx={cx}
                             cy={targetY + this.legendSize - radius}
@@ -215,10 +224,10 @@ export class ScatterSizeLegend {
         targetX: number,
         targetY: number,
         renderOptions: React.SVGAttributes<SVGGElement> = {}
-    ): JSX.Element {
+    ): React.ReactElement {
         const centerX = targetX + this.maxWidth / 2
         return (
-            <g {...renderOptions}>
+            <g id={makeIdForHumanConsumption("size-legend")} {...renderOptions}>
                 {this.renderLegend(targetX, targetY)}
                 {this.label.render(
                     centerX,
@@ -275,7 +284,7 @@ const LegendItem = ({
     labelFontSize: number
     labelFontWeight?: number
     outsideLabel?: boolean
-}): JSX.Element => {
+}): React.ReactElement => {
     const style: React.CSSProperties = {
         fontSize: labelFontSize,
         fontWeight: labelFontWeight,

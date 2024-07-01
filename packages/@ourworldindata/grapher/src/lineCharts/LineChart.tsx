@@ -25,6 +25,7 @@ import {
     Color,
     HorizontalAlign,
     PrimitiveType,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { computed, action, observable } from "mobx"
 import { observer } from "mobx-react"
@@ -38,7 +39,13 @@ import {
     LineLegendManager,
 } from "../lineLegend/LineLegend"
 import { ComparisonLine } from "../scatterCharts/ComparisonLine"
-import { Tooltip, TooltipState, TooltipTable } from "../tooltip/Tooltip"
+import { TooltipFooterIcon } from "../tooltip/TooltipProps.js"
+import {
+    Tooltip,
+    TooltipState,
+    TooltipTable,
+    makeTooltipRoundingNotice,
+} from "../tooltip/Tooltip"
 import { NoDataModal } from "../noDataModal/NoDataModal"
 import { extent } from "d3-array"
 import {
@@ -72,7 +79,6 @@ import {
     OwidTable,
     CoreColumn,
     isNotErrorValue,
-    BlankOwidTable,
 } from "@ourworldindata/core-table"
 import {
     autoDetectSeriesStrategy,
@@ -161,7 +167,7 @@ class Lines extends React.Component<LinesProps> {
         return this.props.lineOutlineWidth ?? DEFAULT_LINE_OUTLINE_WIDTH
     }
 
-    private renderFocusGroups(): JSX.Element[] {
+    private renderFocusGroups(): React.ReactElement[] {
         return this.focusedLines.map((series, index) => {
             // If the series only contains one point, then we will always want to show a marker/circle
             // because we can't draw a line.
@@ -171,12 +177,16 @@ class Lines extends React.Component<LinesProps> {
             const strokeDasharray = series.isProjection ? "2,3" : undefined
 
             return (
-                <g key={index}>
+                <g
+                    id={makeIdForHumanConsumption("line", series.seriesName)}
+                    key={index}
+                >
                     {/*
                         Create a white outline around the lines so they're
                         easier to follow when they overlap.
                     */}
                     <path
+                        id={makeIdForHumanConsumption("outline")}
                         fill="none"
                         strokeLinecap="butt"
                         strokeLinejoin="round"
@@ -193,13 +203,14 @@ class Lines extends React.Component<LinesProps> {
                         )}
                     />
                     <MultiColorPolyline
+                        id={makeIdForHumanConsumption("polyline")}
                         points={series.placedPoints}
                         strokeLinejoin="round"
                         strokeWidth={this.strokeWidth}
                         strokeDasharray={strokeDasharray}
                     />
                     {showMarkers && (
-                        <g>
+                        <g id={makeIdForHumanConsumption("markers")}>
                             {series.placedPoints.map((value, index) => (
                                 <circle
                                     key={index}
@@ -216,9 +227,12 @@ class Lines extends React.Component<LinesProps> {
         })
     }
 
-    private renderBackgroundGroups(): JSX.Element[] {
+    private renderBackgroundGroups(): React.ReactElement[] {
         return this.backgroundLines.map((series, index) => (
-            <g key={index}>
+            <g
+                id={makeIdForHumanConsumption("line", series.seriesName)}
+                key={index}
+            >
                 <path
                     key={getSeriesKey(series, "line")}
                     strokeLinecap="round"
@@ -237,11 +251,11 @@ class Lines extends React.Component<LinesProps> {
         ))
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { bounds } = this
 
         return (
-            <g className="Lines">
+            <g id={makeIdForHumanConsumption("lines")} className="Lines">
                 <rect
                     x={Math.round(bounds.x)}
                     y={Math.round(bounds.y)}
@@ -312,13 +326,9 @@ export class LineChart
                 this.yColumnSlugs
             )
 
-            const groupedByEntity = table
-                .groupBy(table.entityNameColumn.slug)
-                .filter((t) => !t.hasAnyColumnNoValidValue(this.yColumnSlugs))
-
-            if (groupedByEntity.length === 0) return BlankOwidTable()
-
-            table = groupedByEntity[0].concat(groupedByEntity.slice(1))
+            table = table.dropEntitiesThatHaveNoDataInSomeColumn(
+                this.yColumnSlugs
+            )
         }
 
         return table
@@ -464,7 +474,7 @@ export class LineChart
         )
     }
 
-    @computed get activeXVerticalLine(): JSX.Element | undefined {
+    @computed get activeXVerticalLine(): React.ReactElement | undefined {
         const { activeX, dualAxis } = this
         const { horizontalAxis, verticalAxis } = dualAxis
 
@@ -509,7 +519,7 @@ export class LineChart
         )
     }
 
-    @computed private get tooltip(): JSX.Element | undefined {
+    @computed private get tooltip(): React.ReactElement | undefined {
         const { formatColumn, colorColumn, hasColorScale } = this
         const { target, position, fading } = this.tooltipState
 
@@ -560,9 +570,21 @@ export class LineChart
                 ? `% change since ${formatColumn.formatTime(startTime)}`
                 : unitLabel
         const subtitleFormat = subtitle === unitLabel ? "unit" : undefined
-        const footer = sortedData.some((series) => series.isProjection)
-            ? `Projected data`
+
+        const projectionNotice = sortedData.some(
+            (series) => series.isProjection
+        )
+            ? { icon: TooltipFooterIcon.stripes, text: "Projected data" }
             : undefined
+        const roundingNotice = formatColumn.roundsToSignificantFigures
+            ? {
+                  icon: TooltipFooterIcon.none,
+                  text: makeTooltipRoundingNotice([
+                      formatColumn.numSignificantFigures,
+                  ]),
+              }
+            : undefined
+        const footer = excludeUndefined([projectionNotice, roundingNotice])
 
         return (
             <Tooltip
@@ -578,7 +600,6 @@ export class LineChart
                 subtitle={subtitle}
                 subtitleFormat={subtitleFormat}
                 footer={footer}
-                footerFormat="stripes"
                 dissolve={fading}
             >
                 <TooltipTable
@@ -625,10 +646,6 @@ export class LineChart
     defaultRightPadding = 1
 
     @observable hoveredSeriesName?: SeriesName
-    @action.bound onLineLegendClick(): void {
-        if (this.manager.startSelectingWhenLineClicked)
-            this.manager.isSelectingData = true
-    }
 
     @observable private hoverTimer?: NodeJS.Timeout
 
@@ -706,6 +723,13 @@ export class LineChart
         return this.bounds.right - (this.lineLegendDimensions?.width || 0)
     }
 
+    @computed get lineLegendY(): [number, number] {
+        return [
+            this.boundsWithoutColorLegend.top,
+            this.boundsWithoutColorLegend.bottom,
+        ]
+    }
+
     @computed get clipPathBounds(): Bounds {
         const { dualAxis, boundsWithoutColorLegend } = this
         return boundsWithoutColorLegend
@@ -713,7 +737,7 @@ export class LineChart
             .expand(10)
     }
 
-    @computed get clipPath(): { id: string; element: JSX.Element } {
+    @computed get clipPath(): { id: string; element: React.ReactElement } {
         return makeClipPath(this.renderUid, this.clipPathBounds)
     }
 
@@ -730,7 +754,7 @@ export class LineChart
     }
 
     @computed private get lineLegendDimensions(): LineLegend | undefined {
-        return this.manager.hideLegend
+        return !this.manager.showLegend
             ? undefined
             : new LineLegend({ manager: this })
     }
@@ -749,7 +773,7 @@ export class LineChart
         return strategies
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -764,12 +788,11 @@ export class LineChart
 
         const comparisonLines = manager.comparisonLines || []
 
-        const showLegend = !manager.hideLegend
-
         // The tiny bit of extra space in the clippath is to ensure circles centered on the very edge are still fully visible
         return (
             <g
                 ref={this.base}
+                id={makeIdForHumanConsumption("line-chart")}
                 className="LineChart"
                 onMouseLeave={this.onCursorLeave}
                 onTouchEnd={this.onCursorLeave}
@@ -804,9 +827,10 @@ export class LineChart
                             key={index}
                             dualAxis={dualAxis}
                             comparisonLine={line}
+                            baseFontSize={this.fontSize}
                         />
                     ))}
-                    {showLegend && <LineLegend manager={this} />}
+                    {manager.showLegend && <LineLegend manager={this} />}
                     <Lines
                         dualAxis={dualAxis}
                         placedSeries={this.placedSeries}
@@ -896,7 +920,7 @@ export class LineChart
     // Color legend props
 
     @computed private get hasColorLegend(): boolean {
-        return this.hasColorScale && !this.manager.hideLegend
+        return this.hasColorScale && !!this.manager.showLegend
     }
 
     @computed get legendX(): number {
@@ -932,7 +956,7 @@ export class LineChart
     legendTickSize = 1
 
     @computed get numericLegend(): HorizontalNumericColorLegend | undefined {
-        return this.hasColorScale && !this.manager.hideLegend
+        return this.hasColorScale && this.manager.showLegend
             ? new HorizontalNumericColorLegend({ manager: this })
             : undefined
     }
@@ -976,8 +1000,8 @@ export class LineChart
     @computed private get colorScheme(): ColorScheme {
         return (
             (this.manager.baseColorScheme
-                ? ColorSchemes[this.manager.baseColorScheme]
-                : null) ?? ColorSchemes[this.defaultBaseColorScheme]
+                ? ColorSchemes.get(this.manager.baseColorScheme)
+                : null) ?? ColorSchemes.get(this.defaultBaseColorScheme)
         )
     }
 
@@ -1155,7 +1179,7 @@ export class LineChart
                 color,
                 seriesName,
                 // E.g. https://ourworldindata.org/grapher/size-poverty-gap-world
-                label: this.manager.hideLegend ? "" : `${seriesName}`,
+                label: !this.manager.showLegend ? "" : `${seriesName}`,
                 annotation: this.getAnnotationsForSeries(seriesName),
                 yValue: lastValue,
             }
@@ -1240,7 +1264,7 @@ export class LineChart
     }
 
     @computed get externalLegend(): HorizontalColorLegendManager | undefined {
-        if (this.manager.hideLegend) {
+        if (!this.manager.showLegend) {
             const numericLegendData = this.hasColorScale
                 ? this.numericLegendData
                 : []

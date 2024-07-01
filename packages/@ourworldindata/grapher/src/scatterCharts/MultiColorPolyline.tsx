@@ -97,11 +97,11 @@ export class MultiColorPolyline extends React.Component<MultiColorPolylineProps>
         return getSegmentsFromPoints(this.props.points)
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { markerStart, markerMid, markerEnd, ...polylineProps } =
             this.props
         return (
-            <>
+            <g id={this.props.id}>
                 {this.segments.map((group, index) => (
                     <polyline
                         {...polylineProps}
@@ -119,7 +119,7 @@ export class MultiColorPolyline extends React.Component<MultiColorPolylineProps>
                         }
                     />
                 ))}
-            </>
+            </g>
         )
     }
 }

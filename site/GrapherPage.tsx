@@ -2,13 +2,11 @@ import {
     getVariableDataRoute,
     getVariableMetadataRoute,
     GRAPHER_PAGE_BODY_CLASS,
-    GRAPHER_SETTINGS_DRAWER_ID,
     LoadingIndicator,
 } from "@ourworldindata/grapher"
 import {
     flatten,
     PostReference,
-    DbEnrichedPost,
     RelatedChart,
     serializeJSONForHTML,
     GrapherInterface,
@@ -21,7 +19,6 @@ import React from "react"
 import urljoin from "url-join"
 import {
     ADMIN_BASE_URL,
-    BAKED_GRAPHER_EXPORTS_BASE_URL,
     BAKED_GRAPHER_URL,
     DATA_API_URL,
 } from "../settings/clientSettings.js"
@@ -31,10 +28,10 @@ import { IFrameDetector } from "./IframeDetector.js"
 import { RelatedArticles } from "./RelatedArticles/RelatedArticles.js"
 import { SiteFooter } from "./SiteFooter.js"
 import { SiteHeader } from "./SiteHeader.js"
+import GrapherImage from "./GrapherImage.js"
 
 export const GrapherPage = (props: {
     grapher: GrapherInterface
-    post?: DbEnrichedPost
     relatedCharts?: RelatedChart[]
     relatedArticles?: PostReference[]
     baseUrl: string
@@ -122,14 +119,16 @@ window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig)`
             <body className={GRAPHER_PAGE_BODY_CLASS}>
                 <SiteHeader baseUrl={baseUrl} />
                 <main>
-                    <nav id={GRAPHER_SETTINGS_DRAWER_ID}></nav>
                     <figure data-grapher-src={`/grapher/${grapher.slug}`}>
                         <LoadingIndicator />
                     </figure>
                     <noscript id="fallback">
-                        <img
-                            src={`${BAKED_GRAPHER_EXPORTS_BASE_URL}/${grapher.slug}.svg`}
-                        />
+                        {grapher.slug && (
+                            <GrapherImage
+                                slug={grapher.slug}
+                                alt={grapher.title}
+                            />
+                        )}
                         <p>Interactive visualization requires JavaScript</p>
                     </noscript>
 

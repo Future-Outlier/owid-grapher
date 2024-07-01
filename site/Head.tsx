@@ -1,9 +1,6 @@
 import React from "react"
-import { VITE_ASSET_SITE_ENTRY, viteAssets } from "./viteUtils.js"
-import {
-    GOOGLE_TAG_MANAGER_ID,
-    BAKED_BASE_URL,
-} from "../settings/clientSettings.js"
+import { viteAssetsForSite } from "./viteUtils.js"
+import { GOOGLE_TAG_MANAGER_ID } from "../settings/clientSettings.js"
 
 export const GTMScriptTags = ({ gtmId }: { gtmId: string }) => {
     if (!gtmId || /["']/.test(gtmId)) return null
@@ -59,7 +56,7 @@ export const Head = (props: {
         href: "/atom.xml",
     }
 
-    const stylesheets = viteAssets(VITE_ASSET_SITE_ENTRY).forHeader
+    const stylesheets = viteAssetsForSite().forHeader
 
     return (
         <head>
@@ -101,29 +98,8 @@ export const Head = (props: {
             <meta name="twitter:description" content={pageDesc} />
             <meta name="twitter:image" content={encodeURI(imageUrl)} />
             {stylesheets}
-            <ScriptTagLoadingDetails />
             {props.children}
             <GTMScriptTags gtmId={GOOGLE_TAG_MANAGER_ID} />
         </head>
-    )
-}
-
-function ScriptTagLoadingDetails() {
-    return (
-        <script
-            dangerouslySetInnerHTML={{
-                __html: `fetch("${BAKED_BASE_URL}/dods.json", {
-                    method: "GET",
-                    credentials: "same-origin",
-                    headers: {
-                        Accept: "application/json",
-                    },
-                })
-                    .then((res) => res.json())
-                    .then((details) => {
-                        window.details = details
-                    })`,
-            }}
-        />
     )
 }

@@ -7,6 +7,7 @@ export {
     getRelativeMouse,
     exposeInstanceOnWindow,
     makeSafeForCSS,
+    makeIdForHumanConsumption,
     formatDay,
     formatYear,
     numberMagnitude,
@@ -35,6 +36,7 @@ export {
     isTouchDevice,
     type Json,
     csvEscape,
+    escapeRegExp,
     urlToSlug,
     trimObject,
     fetchText,
@@ -48,19 +50,15 @@ export {
     es6mapValues,
     type DataValue,
     valuesByEntityAtTimes,
-    valuesByEntityWithinTimes,
-    getStartEndValues,
     dateDiffInDays,
     diffDateISOStringInDays,
     getYearFromISOStringAndDayOffset,
-    addDays,
     parseIntOrUndefined,
     anyToString,
     scrollIntoViewIfNeeded,
     rollingMap,
     groupMap,
     keyMap,
-    oneOf,
     intersectionOfSets,
     unionOfSets,
     differenceOfSets,
@@ -72,7 +70,6 @@ export {
     sortNumeric,
     mapBy,
     findIndexFast,
-    logMe,
     getClosestTimePairs,
     omitUndefinedValues,
     omitNullableValues,
@@ -100,7 +97,7 @@ export {
     isPositiveInfinity,
     imemo,
     recursivelyMapArticleContent,
-    traverseEnrichedBlocks,
+    traverseEnrichedBlock,
     checkNodeIsSpan,
     checkNodeIsSpanLink,
     spansToUnformattedPlainText,
@@ -115,9 +112,18 @@ export {
     mergePartialGrapherConfigs,
     copyToClipboard,
     checkIsGdocPost,
+    checkIsGdocPostExcludingFragments,
     checkIsDataInsight,
     checkIsAuthor,
     cartesian,
+    removeTrailingParenthetical,
+    isElementHidden,
+    roundDownToNearestHundred,
+    commafyNumber,
+    isFiniteWithGuard,
+    createTagGraph,
+    formatInlineList,
+    lazy,
 } from "./Util.js"
 
 export {
@@ -160,6 +166,7 @@ export {
     isBoolean,
     isEmpty,
     isEqual,
+    isInteger,
     isNil,
     isNull,
     isNumber,
@@ -186,11 +193,13 @@ export {
     sampleSize,
     set,
     sortBy,
+    sortedIndexBy,
     sortedUniqBy,
     startCase,
     sum,
     sumBy,
     takeWhile,
+    tail,
     throttle,
     toString,
     union,
@@ -237,12 +246,14 @@ export {
     countries,
     type Country,
     getCountryBySlug,
+    getCountryByName,
+    getRegionByNameOrVariantName,
     isCountryName,
-    continents,
+    getContinents,
     type Continent,
-    aggregates,
+    getAggregates,
     type Aggregate,
-    others,
+    getOthers,
 } from "./regions.js"
 
 export { getStylesForTargetHeight } from "./react-select.js"
@@ -278,81 +289,7 @@ export { Url, setWindowUrl, getWindowUrl } from "./urls/Url.js"
 
 export { type UrlMigration, performUrlMigrations } from "./urls/UrlMigration.js"
 
-export {
-    type GrapherConfigPatch,
-    type BulkGrapherConfigResponseRow,
-    type VariableAnnotationsResponseRow,
-    type BulkChartEditResponseRow,
-    type BulkGrapherConfigResponse,
-    WHITELISTED_SQL_COLUMN_NAMES,
-    variableAnnotationAllowedColumnNamesAndTypes,
-    chartBulkUpdateAllowedColumnNamesAndTypes,
-} from "./AdminSessionTypes.js"
-
-export {
-    setValueRecursiveInplace,
-    setValueRecursive,
-    compileGetValueFunction,
-    applyPatch,
-} from "./patchHelper.js"
-
-export {
-    EditorOption,
-    FieldType,
-    type FieldDescription,
-    extractFieldDescriptionsFromSchema,
-} from "./schemaProcessing.js"
-
-export {
-    type SExprAtom,
-    type JSONPreciselyTyped,
-    type JsonLogicContext,
-    Arity,
-    type OperationContext,
-    type Operation,
-    ExpressionType,
-    BooleanAtom,
-    NumberAtom,
-    StringAtom,
-    JsonPointerSymbol,
-    SqlColumnName,
-    ArithmeticOperator,
-    allArithmeticOperators,
-    ArithmeticOperation,
-    NullCheckOperator,
-    allNullCheckOperators,
-    NullCheckOperation,
-    EqualityOperator,
-    allEqualityOperators,
-    EqualityComparision,
-    StringContainsOperation,
-    ComparisonOperator,
-    allComparisonOperators,
-    NumericComparison,
-    BinaryLogicOperators,
-    allBinaryLogicOperators,
-    BinaryLogicOperation,
-    Negation,
-    parseOperationRecursive,
-    parseToOperation,
-    NumericOperation,
-    BooleanOperation,
-    StringOperation,
-} from "./SqlFilterSExpression.js"
-
-export {
-    type SearchWord,
-    buildSearchWordsFromSearchString,
-    filterFunctionForSearchWords,
-    highlightFunctionForSearchWords,
-} from "./search.js"
-
-export {
-    findUrlsInText,
-    camelCaseProperties,
-    includesCaseInsensitive,
-    titleCase,
-} from "./string.js"
+export { camelCaseProperties, titleCase } from "./string.js"
 
 export { serializeJSONForHTML, deserializeJSONFromHTML } from "./serializers.js"
 
@@ -361,9 +298,13 @@ export { PromiseCache } from "./PromiseCache.js"
 export { PromiseSwitcher } from "./PromiseSwitcher.js"
 
 export {
+    THUMBNAIL_WIDTH,
+    LARGE_THUMBNAIL_WIDTH,
     getSizes,
     generateSrcSet,
     getFilenameWithoutExtension,
+    getFilenameAsThumbnail,
+    getThumbnailPath,
     getFilenameAsPng,
     getFilenameExtension,
     getFilenameMIMEType,
@@ -373,12 +314,6 @@ export {
 } from "./image.js"
 
 export { Tippy, TippyIfInteractive } from "./Tippy.js"
-
-export {
-    extractFormattingOptions,
-    parseFormattingOptions,
-    parseKeyValueArgs,
-} from "./wordpressUtils.js"
 
 // This re-exports everything in the types package from the utils package. This is done so that
 // the transition is easier - we might want to get rid of this and rewrite all the imports instead
@@ -393,3 +328,5 @@ export {
     MAX_DONATION_AMOUNT,
     PLEASE_TRY_AGAIN,
 } from "./DonateUtils.js"
+
+export { isAndroid, isIOS } from "./BrowserUtils.js"

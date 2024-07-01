@@ -27,20 +27,15 @@ export const DATA_API_FOR_ADMIN_UI: string | undefined =
     serverSettings.DATA_API_FOR_ADMIN_UI
 export const BAKED_BASE_URL: string = clientSettings.BAKED_BASE_URL
 
-export const VITE_PREVIEW: boolean =
-    serverSettings.VITE_PREVIEW === "true" ?? false
+export const VITE_PREVIEW: boolean = serverSettings.VITE_PREVIEW === "true"
 
 export const ADMIN_BASE_URL: string = clientSettings.ADMIN_BASE_URL
-export const WORDPRESS_URL: string = clientSettings.WORDPRESS_URL
 
 export const BAKED_GRAPHER_URL: string =
     serverSettings.BAKED_GRAPHER_URL ?? `${BAKED_BASE_URL}/grapher`
 
-export const BAKED_WORDPRESS_UPLOADS_URL: string =
-    serverSettings.BAKED_WORDPRESS_UPLOADS_URL ?? `${BAKED_BASE_URL}/uploads`
-
 export const OPTIMIZE_SVG_EXPORTS: boolean =
-    serverSettings.OPTIMIZE_SVG_EXPORTS === "true" ?? false
+    serverSettings.OPTIMIZE_SVG_EXPORTS === "true"
 
 export const GITHUB_USERNAME: string =
     serverSettings.GITHUB_USERNAME ?? "owid-test"
@@ -84,27 +79,15 @@ export const BAKED_SITE_DIR: string =
 export const SECRET_KEY: string =
     serverSettings.SECRET_KEY ??
     "fejwiaof jewiafo jeioa fjieowajf isa fjidosajfgj"
-export const WORDPRESS_DB_NAME: string = serverSettings.WORDPRESS_DB_NAME ?? ""
-export const WORDPRESS_DB_USER: string = serverSettings.WORDPRESS_DB_USER ?? ""
-export const WORDPRESS_DB_PASS: string = serverSettings.WORDPRESS_DB_PASS ?? ""
-export const WORDPRESS_DB_HOST: string = serverSettings.WORDPRESS_DB_HOST ?? ""
-export const WORDPRESS_DB_PORT: number | undefined = parseIntOrUndefined(
-    serverSettings.WORDPRESS_DB_PORT
-)
-export const WORDPRESS_API_USER: string =
-    serverSettings.WORDPRESS_API_USER ?? ""
-export const WORDPRESS_API_PASS: string =
-    serverSettings.WORDPRESS_API_PASS ?? ""
 export const SESSION_COOKIE_AGE: number =
     parseIntOrUndefined(serverSettings.SESSION_COOKIE_AGE) ?? 1209600
 export const ALGOLIA_SECRET_KEY: string =
     serverSettings.ALGOLIA_SECRET_KEY ?? ""
 export const ALGOLIA_INDEXING: boolean =
-    serverSettings.ALGOLIA_INDEXING === "true" ?? false
+    serverSettings.ALGOLIA_INDEXING === "true"
 
 // Wordpress target setting
-export const WORDPRESS_DIR: string = serverSettings.WORDPRESS_DIR ?? "wordpress"
-export const HTTPS_ONLY: boolean = serverSettings.HTTPS_ONLY !== "false" ?? true
+export const HTTPS_ONLY: boolean = serverSettings.HTTPS_ONLY !== "false"
 
 export const GIT_DATASETS_DIR: string =
     serverSettings.GIT_DATASETS_DIR ?? `${BASE_DIR}/datasetsExport` //  Where the git exports go
@@ -113,8 +96,7 @@ export const UNCATEGORIZED_TAG_ID: number =
     parseIntOrUndefined(serverSettings.UNCATEGORIZED_TAG_ID) ?? 375
 
 // Should the static site output be baked when relevant database items change
-export const BAKE_ON_CHANGE: boolean =
-    serverSettings.BAKE_ON_CHANGE === "true" ?? false
+export const BAKE_ON_CHANGE: boolean = serverSettings.BAKE_ON_CHANGE === "true"
 export const DEPLOY_QUEUE_FILE_PATH: string =
     serverSettings.DEPLOY_QUEUE_FILE_PATH ?? `${BASE_DIR}/.queue`
 export const DEPLOY_PENDING_FILE_PATH: string =
@@ -205,3 +187,11 @@ export const OPENAI_API_KEY: string = serverSettings.OPENAI_API_KEY ?? ""
 
 export const SLACK_BOT_OAUTH_TOKEN: string =
     serverSettings.SLACK_BOT_OAUTH_TOKEN ?? ""
+
+export const LEGACY_WORDPRESS_IMAGE_URL: string =
+    serverSettings.LEGACY_WORDPRESS_IMAGE_URL ??
+    "https://assets.ourworldindata.org/uploads"
+
+// search evaluation
+export const SEARCH_EVAL_URL: string =
+    "https://pub-ec761fe0df554b02bc605610f3296000.r2.dev"

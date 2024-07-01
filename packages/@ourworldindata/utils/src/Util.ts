@@ -23,6 +23,7 @@ import {
     isBoolean,
     isEmpty,
     isEqual,
+    isInteger,
     isNil,
     isNull,
     isNumber,
@@ -51,6 +52,7 @@ import {
     sampleSize,
     set,
     sortBy,
+    sortedIndexBy,
     sortedUniqBy,
     startCase,
     sum,
@@ -94,6 +96,7 @@ export {
     isBoolean,
     isEmpty,
     isEqual,
+    isInteger,
     isNil,
     isNull,
     isNumber,
@@ -120,6 +123,7 @@ export {
     sampleSize,
     set,
     sortBy,
+    sortedIndexBy,
     sortedUniqBy,
     startCase,
     sum,
@@ -170,6 +174,9 @@ import {
     UserCountryInformation,
     Time,
     TimeBound,
+    TagGraphRoot,
+    TagGraphRootName,
+    TagGraphNode,
 } from "@ourworldindata/types"
 import { PointVector } from "./PointVector.js"
 import React from "react"
@@ -294,11 +301,28 @@ export const exposeInstanceOnWindow = (
 export const makeSafeForCSS = (name: string): string =>
     name.replace(/[^a-z0-9]/g, (str) => {
         const char = str.charCodeAt(0)
-        if (char === 32) return "-"
+        if (char === 32 || char === 45) return "-"
         if (char === 95) return "_"
         if (char >= 65 && char <= 90) return str
         return "__" + ("000" + char.toString(16)).slice(-4)
     })
+
+/**
+ * Make a human-readable string meant to be be used as the ID of a SVG chart
+ * element. This is useful when a static chart is manually edited in a SVG
+ * editor since SVG manipulation software like Figma often show the element's
+ * id as its title.
+ */
+export function makeIdForHumanConsumption(
+    name: string,
+    unsafeKey?: string
+): string {
+    let id = name
+    if (unsafeKey) {
+        id += "__" + makeSafeForCSS(unsafeKey)
+    }
+    return id
+}
 
 export function formatDay(
     dayAsYear: number,
@@ -567,13 +591,18 @@ export const fetchText = async (url: string): Promise<string> => {
     })
 }
 
-export const getUserCountryInformation = async (): Promise<
+const _getUserCountryInformation = async (): Promise<
     UserCountryInformation | undefined
 > =>
     await fetch("/detect-country")
         .then((res) => res.json())
         .then((res) => res.country)
         .catch(() => undefined)
+
+// Memoized because this will pretty much never change during a session.
+// The memoization, however, also means that any failures will also be cached.
+// This is okay currently, because currently this information is very much an optional nice-to-have.
+export const getUserCountryInformation = memoize(_getUserCountryInformation)
 
 export const stripHTML = (html: string): string => striptags(html)
 
@@ -723,29 +752,6 @@ export const valuesByEntityAtTimes = (
         valuesAtTimes(valueByTime, targetTimes, tolerance)
     )
 
-export const valuesByEntityWithinTimes = (
-    valueByEntityAndTimes: Map<string, Map<number, string | number>>,
-    range: (number | undefined)[]
-): Map<string, DataValue[]> => {
-    const start = range[0] !== undefined ? range[0] : -Infinity
-    const end = range[1] !== undefined ? range[1] : Infinity
-    return es6mapValues(valueByEntityAndTimes, (valueByTime) =>
-        Array.from(valueByTime.keys())
-            .filter((time) => time >= start && time <= end)
-            .map((time) => ({
-                time,
-                value: valueByTime.get(time),
-            }))
-    )
-}
-
-export const getStartEndValues = (
-    values: DataValue[]
-): (DataValue | undefined)[] => [
-    minBy(values, (dv) => dv.time),
-    maxBy(values, (dv) => dv.time),
-]
-
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
 // From https://stackoverflow.com/a/15289883
@@ -765,12 +771,6 @@ export const getYearFromISOStringAndDayOffset = (
 ): number => {
     const date = dayjs.utc(epoch).add(daysOffset, "day")
     return date.year()
-}
-
-export const addDays = (date: Date, days: number): Date => {
-    const newDate = new Date(date.getTime())
-    newDate.setDate(newDate.getDate() + days)
-    return newDate
 }
 
 export const sleep = (ms: number): Promise<void> =>
@@ -894,13 +894,6 @@ export function keyMap<Key, Value>(
     return result
 }
 
-export const oneOf = <T>(value: unknown, options: T[], defaultOption: T): T => {
-    for (const option of options) {
-        if (value === option) return option
-    }
-    return defaultOption
-}
-
 export const intersectionOfSets = <T>(sets: Set<T>[]): Set<T> => {
     if (!sets.length) return new Set<T>()
     const intersection = new Set<T>(sets[0])
@@ -1021,20 +1014,6 @@ export const findIndexFast = (
         index++
     }
     return -1
-}
-
-export const logMe = (
-    target: unknown,
-    propertyName: string,
-    descriptor: TypedPropertyDescriptor<any>
-): TypedPropertyDescriptor<any> => {
-    const originalMethod = descriptor.value
-    descriptor.value = function (...args: any[]): any {
-        // eslint-disable-next-line no-console
-        console.log(`Running ${propertyName} with '${args}'`)
-        return originalMethod.apply(this, args)
-    }
-    return descriptor
 }
 
 export function getClosestTimePairs(
@@ -1504,7 +1483,7 @@ export function traverseEnrichedSpan(
 // If your node has children that are Spans, the spanCallback will apply to them
 // If your node has children that aren't OwidEnrichedGdocBlocks or Spans, e.g. EnrichedBlockScroller & EnrichedScrollerItem
 // you'll have to handle those children yourself in your callback
-export function traverseEnrichedBlocks(
+export function traverseEnrichedBlock(
     node: OwidEnrichedGdocBlock,
     callback: (x: OwidEnrichedGdocBlock) => void,
     spanCallback?: (x: Span) => void
@@ -1515,24 +1494,24 @@ export function traverseEnrichedBlocks(
             (container) => {
                 callback(container)
                 container.left.forEach((leftNode) =>
-                    traverseEnrichedBlocks(leftNode, callback, spanCallback)
+                    traverseEnrichedBlock(leftNode, callback, spanCallback)
                 )
                 container.right.forEach((rightNode) =>
-                    traverseEnrichedBlocks(rightNode, callback, spanCallback)
+                    traverseEnrichedBlock(rightNode, callback, spanCallback)
                 )
             }
         )
         .with({ type: "gray-section" }, (graySection) => {
             callback(graySection)
             graySection.items.forEach((node) =>
-                traverseEnrichedBlocks(node, callback, spanCallback)
+                traverseEnrichedBlock(node, callback, spanCallback)
             )
         })
         .with({ type: "key-insights" }, (keyInsights) => {
             callback(keyInsights)
             keyInsights.insights.forEach((insight) =>
                 insight.content.forEach((node) =>
-                    traverseEnrichedBlocks(node, callback, spanCallback)
+                    traverseEnrichedBlock(node, callback, spanCallback)
                 )
             )
         })
@@ -1540,7 +1519,7 @@ export function traverseEnrichedBlocks(
             callback(callout)
             if (spanCallback) {
                 callout.text.forEach((textBlock) =>
-                    traverseEnrichedBlocks(textBlock, callback, spanCallback)
+                    traverseEnrichedBlock(textBlock, callback, spanCallback)
                 )
             }
         })
@@ -1556,7 +1535,7 @@ export function traverseEnrichedBlocks(
             callback(list)
             if (spanCallback) {
                 list.items.forEach((textBlock) =>
-                    traverseEnrichedBlocks(textBlock, callback, spanCallback)
+                    traverseEnrichedBlock(textBlock, callback, spanCallback)
                 )
             }
         })
@@ -1564,7 +1543,7 @@ export function traverseEnrichedBlocks(
             callback(numberedList)
             if (spanCallback) {
                 numberedList.items.forEach((textBlock) =>
-                    traverseEnrichedBlocks(textBlock, callback, spanCallback)
+                    traverseEnrichedBlock(textBlock, callback, spanCallback)
                 )
             }
         })
@@ -1602,13 +1581,13 @@ export function traverseEnrichedBlocks(
         .with({ type: "expandable-paragraph" }, (expandableParagraph) => {
             callback(expandableParagraph)
             expandableParagraph.items.forEach((textBlock) => {
-                traverseEnrichedBlocks(textBlock, callback, spanCallback)
+                traverseEnrichedBlock(textBlock, callback, spanCallback)
             })
         })
         .with({ type: "align" }, (align) => {
             callback(align)
             align.content.forEach((node) => {
-                traverseEnrichedBlocks(node, callback, spanCallback)
+                traverseEnrichedBlock(node, callback, spanCallback)
             })
         })
         .with({ type: "table" }, (table) => {
@@ -1616,7 +1595,7 @@ export function traverseEnrichedBlocks(
             table.rows.forEach((row) => {
                 row.cells.forEach((cell) => {
                     cell.content.forEach((node) => {
-                        traverseEnrichedBlocks(node, callback, spanCallback)
+                        traverseEnrichedBlock(node, callback, spanCallback)
                     })
                 })
             })
@@ -1624,7 +1603,7 @@ export function traverseEnrichedBlocks(
         .with({ type: "blockquote" }, (blockquote) => {
             callback(blockquote)
             blockquote.text.forEach((node) => {
-                traverseEnrichedBlocks(node, callback, spanCallback)
+                traverseEnrichedBlock(node, callback, spanCallback)
             })
         })
         .with(
@@ -1634,7 +1613,7 @@ export function traverseEnrichedBlocks(
             (keyIndicator) => {
                 callback(keyIndicator)
                 keyIndicator.text.forEach((node) => {
-                    traverseEnrichedBlocks(node, callback, spanCallback)
+                    traverseEnrichedBlock(node, callback, spanCallback)
                 })
             }
         )
@@ -1643,7 +1622,7 @@ export function traverseEnrichedBlocks(
             (keyIndicatorCollection) => {
                 callback(keyIndicatorCollection)
                 keyIndicatorCollection.blocks.forEach((node) =>
-                    traverseEnrichedBlocks(node, callback, spanCallback)
+                    traverseEnrichedBlock(node, callback, spanCallback)
                 )
             }
         )
@@ -1772,15 +1751,6 @@ export function mergePartialGrapherConfigs<T extends Record<string, any>>(
     return merge({}, ...grapherConfigs)
 }
 
-export const joinWithAmpersand = (fragments: string[]): string => {
-    if (fragments.length === 0) return ""
-    else if (fragments.length === 1) return fragments[0]
-    else {
-        const last = fragments.pop()
-        return fragments.join(", ") + " & " + last
-    }
-}
-
 /** Works for:
  * #dod:text
  * #dod:text-hyphenated
@@ -1796,15 +1766,37 @@ export function extractDetailsFromSyntax(str: string): string[] {
     )
 }
 
+/**
+ * If you're using this type guard, make sure you're okay with Fragments
+ * See https://github.com/owid/owid-grapher/issues/3426
+ */
 export function checkIsGdocPost(x: unknown): x is OwidGdocPostInterface {
-    const type = get(x, "content.type")
+    const type = get(x, "content.type") as OwidGdocType | undefined
     return [
         OwidGdocType.Article,
         OwidGdocType.TopicPage,
         OwidGdocType.LinearTopicPage,
         OwidGdocType.Fragment,
         OwidGdocType.AboutPage,
-    ].includes(type)
+    ].includes(type as any)
+}
+
+/**
+ * Fragments were developed before we had a robust gdoc type system in place
+ * Use this function when you want to be sure you're dealing with published editorial content
+ * and not just content that has the right shape
+ * See https://github.com/owid/owid-grapher/issues/3426
+ */
+export function checkIsGdocPostExcludingFragments(
+    x: unknown
+): x is OwidGdocPostInterface {
+    const type = get(x, "content.type") as OwidGdocType | undefined
+    return [
+        OwidGdocType.Article,
+        OwidGdocType.TopicPage,
+        OwidGdocType.LinearTopicPage,
+        OwidGdocType.AboutPage,
+    ].includes(type as any)
 }
 
 export function checkIsDataInsight(
@@ -1818,6 +1810,7 @@ export function checkIsAuthor(x: unknown): x is OwidGdocAuthorInterface {
     const type = get(x, "content.type")
     return type === OwidGdocType.Author
 }
+
 /**
  * Returns the cartesian product of the given arrays.
  *
@@ -1830,4 +1823,102 @@ export function cartesian<T>(matrix: T[][]): T[][] {
         (acc, curr) => acc.flatMap((i) => curr.map((j) => [...i, j])),
         [[]]
     )
+}
+
+// Remove any parenthetical content from _the end_ of a string
+// E.g. "Africa (UN)" -> "Africa"
+export function removeTrailingParenthetical(str: string): string {
+    return str.replace(/\s*\(.*\)$/, "")
+}
+
+export function isElementHidden(element: Element | null): boolean {
+    if (!element) return false
+    const computedStyle = window.getComputedStyle(element)
+    if (
+        computedStyle.display === "none" ||
+        computedStyle.visibility === "hidden"
+    )
+        return true
+    return isElementHidden(element.parentElement)
+}
+
+export function roundDownToNearestHundred(value: number): number {
+    return Math.floor(value / 100) * 100
+}
+
+const commafyFormatter = lazy(() => new Intl.NumberFormat("en-US"))
+/**
+ * Example: 12000 -> "12,000"
+ */
+export function commafyNumber(value: number): string {
+    return commafyFormatter().format(value)
+}
+
+export function isFiniteWithGuard(value: unknown): value is number {
+    return isFinite(value as any)
+}
+
+export function createTagGraph(
+    tagGraphByParentId: Record<number, any>,
+    rootId: number
+): TagGraphRoot {
+    const tagGraph: TagGraphRoot = {
+        id: rootId,
+        name: TagGraphRootName,
+        slug: null,
+        isTopic: false,
+        path: [rootId],
+        weight: 0,
+        children: [],
+    }
+
+    function recursivelySetChildren(node: TagGraphNode): TagGraphNode {
+        const children = tagGraphByParentId[node.id]
+        if (!children) return node
+
+        for (const child of children) {
+            const childNode: TagGraphNode = {
+                id: child.childId,
+                path: [...node.path, child.childId],
+                name: child.name,
+                slug: child.slug,
+                isTopic: child.isTopic,
+                weight: child.weight,
+                children: [],
+            }
+
+            node.children.push(recursivelySetChildren(childNode))
+        }
+        return node
+    }
+
+    return recursivelySetChildren(tagGraph) as TagGraphRoot
+}
+
+export function formatInlineList(
+    array: unknown[],
+    connector: "and" | "or" = "and"
+): string {
+    if (array.length === 0) return ""
+    if (array.length === 1) return `${array[0]}`
+    return `${array.slice(0, -1).join(", ")} ${connector} ${last(array)}`
+}
+
+// The below comment marks this function as side-effect free, meaning that the bundler
+// can safely remove it if it is not used.
+// This is useful for e.g. constants that are only used in some parts of the codebase.
+// See https://rollupjs.org/configuration-options/#no-side-effects
+// @__NO_SIDE_EFFECTS__
+// Other than that, this function is like lodash's once, in that it'll run fn at most once
+// and then save the result for future calls.
+export function lazy<T>(fn: () => T): () => T {
+    let hasRun = false
+    let _value: T
+    return () => {
+        if (!hasRun) {
+            _value = fn()
+            hasRun = true
+        }
+        return _value
+    }
 }

@@ -3,7 +3,6 @@ import { select } from "d3-selection"
 import {
     min,
     max,
-    maxBy,
     sortBy,
     exposeInstanceOnWindow,
     uniq,
@@ -18,6 +17,7 @@ import {
     HorizontalAlign,
     AxisAlign,
     uniqBy,
+    makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { computed } from "mobx"
 import { observer } from "mobx-react"
@@ -74,6 +74,7 @@ import {
 } from "../horizontalColorLegend/HorizontalColorLegends"
 import { BaseType, Selection } from "d3"
 import { getElementWithHalo } from "../scatterCharts/Halos.js"
+import { TextWrap } from "@ourworldindata/components"
 
 const labelToTextPadding = 10
 const labelToBarPadding = 5
@@ -204,9 +205,7 @@ export class DiscreteBarChart
 
     // Account for the width of the legend
     @computed private get seriesLegendWidth(): number {
-        const labels = this.series.map((series) => series.seriesName)
-        const longestLabel = maxBy(labels, (d) => d.length)
-        return Bounds.forText(longestLabel, this.legendLabelStyle).width
+        return max(this.sizedSeries.map((s) => s.label?.width ?? 0)) ?? 0
     }
 
     @computed private get hasPositive(): boolean {
@@ -309,13 +308,18 @@ export class DiscreteBarChart
         return makeSelectionArray(this.manager.selection)
     }
 
-    // Leave space for extra bar at bottom to show "Add country" button
     @computed private get barCount(): number {
         return this.series.length
     }
 
     @computed private get barHeight(): number {
         return (0.8 * this.innerBounds.height) / this.barCount
+    }
+
+    // useful if `this.barHeight` can't be used due to a cyclic dependency
+    // keep in mind though that this is not exactly the same as `this.barHeight`
+    @computed private get approximateBarHeight(): number {
+        return (0.8 * this.boundsWithoutColorLegend.height) / this.barCount
     }
 
     @computed private get barSpacing(): number {
@@ -397,7 +401,7 @@ export class DiscreteBarChart
         if (!this.manager.disableIntroAnimation) this.animateBarWidth()
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -409,7 +413,7 @@ export class DiscreteBarChart
 
         const {
             manager,
-            series,
+            sizedSeries,
             boundsWithoutColorLegend,
             yAxis,
             innerBounds,
@@ -424,7 +428,11 @@ export class DiscreteBarChart
             : GRAPHER_AXIS_LINE_WIDTH_DEFAULT
 
         return (
-            <g ref={this.base} className="DiscreteBarChart">
+            <g
+                ref={this.base}
+                id={makeIdForHumanConsumption("discrete-bar-chart")}
+                className="DiscreteBarChart"
+            >
                 {this.hasProjectedData && (
                     <defs>
                         {/* passed to the legend as pattern for the
@@ -459,7 +467,7 @@ export class DiscreteBarChart
                     bounds={innerBounds}
                     strokeWidth={axisLineWidth}
                 />
-                {series.map((series) => {
+                {sizedSeries.map((series) => {
                     // Todo: add a "placedSeries" getter to get the transformed series, then just loop over the placedSeries and render a bar for each
                     const isNegative = series.value < 0
                     const isProjection = series.yColumn.isProjection
@@ -481,6 +489,10 @@ export class DiscreteBarChart
                     const result = (
                         <g
                             key={series.seriesName}
+                            id={makeIdForHumanConsumption(
+                                "bar",
+                                series.seriesName
+                            )}
                             className="bar"
                             transform={`translate(0, ${yOffset})`}
                         >
@@ -489,17 +501,17 @@ export class DiscreteBarChart
                                     {makeProjectedDataPattern(barColor)}
                                 </defs>
                             )}
-                            <text
-                                x={0}
-                                y={0}
-                                transform={`translate(${labelX}, 0)`}
-                                fill="#555"
-                                dominantBaseline="middle"
-                                textAnchor="end"
-                                {...this.legendLabelStyle}
-                            >
-                                {series.seriesName}
-                            </text>
+                            {series.label &&
+                                series.label.render(
+                                    labelX,
+                                    -series.label.height / 2,
+                                    {
+                                        textProps: {
+                                            fill: "#555",
+                                            textAnchor: "end",
+                                        },
+                                    }
+                                )}
                             <rect
                                 x={0}
                                 y={0}
@@ -721,8 +733,8 @@ export class DiscreteBarChart
         const defaultColorScheme = this.defaultBaseColorScheme
         const colorScheme = this.manager.baseColorScheme ?? defaultColorScheme
         return this.manager.isLineChart
-            ? ColorSchemes[defaultColorScheme]
-            : ColorSchemes[colorScheme]
+            ? ColorSchemes.get(defaultColorScheme)
+            : ColorSchemes.get(colorScheme)
     }
 
     @computed private get valuesToColorsMap(): Map<number, string> {
@@ -779,7 +791,7 @@ export class DiscreteBarChart
     }
 
     @computed get showColorLegend(): boolean {
-        return this.hasColorLegend && !this.manager.hideLegend
+        return this.hasColorLegend && !!this.manager.showLegend
     }
 
     @computed get legendX(): number {
@@ -845,7 +857,7 @@ export class DiscreteBarChart
     legendTickSize = 1
 
     @computed get numericLegend(): HorizontalNumericColorLegend | undefined {
-        return this.hasColorScale && !this.manager.hideLegend
+        return this.hasColorScale && this.manager.showLegend
             ? new HorizontalNumericColorLegend({ manager: this })
             : undefined
     }
@@ -887,6 +899,39 @@ export class DiscreteBarChart
 
         return series
     }
+
+    @computed get sizedSeries(): DiscreteBarSeries[] {
+        // can't use `this.barHeight` due to a circular dependency
+        const barHeight = this.approximateBarHeight
+
+        return this.series.map((series) => {
+            // make sure we're dealing with a single-line text fragment
+            const seriesName = series.seriesName.replace(/\n/g, " ").trim()
+
+            let label = new TextWrap({
+                text: seriesName,
+                maxWidth: this.boundsWithoutColorLegend.width * 0.3,
+                ...this.legendLabelStyle,
+            })
+
+            // prevent labels from being taller than the bar
+            let step = 0
+            while (
+                label.height > barHeight &&
+                label.lines.length > 1 &&
+                step < 10 // safety net
+            ) {
+                label = new TextWrap({
+                    text: seriesName,
+                    maxWidth: label.maxWidth + 20,
+                    ...this.legendLabelStyle,
+                })
+                step += 1
+            }
+
+            return { ...series, label }
+        })
+    }
 }
 
 // Pattern IDs should be unique per document (!), not just per grapher instance.
@@ -896,7 +941,7 @@ function makeProjectedDataPatternId(color: string): string {
     return `DiscreteBarChart_stripes_${color}`
 }
 
-function makeProjectedDataPattern(color: string): JSX.Element {
+function makeProjectedDataPattern(color: string): React.ReactElement {
     const size = 7
     return (
         <pattern

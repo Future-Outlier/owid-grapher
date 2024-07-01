@@ -102,6 +102,7 @@ import {
     GrapherStaticFormat,
     DetailsMarker,
     DetailDictionary,
+    GrapherWindowType,
 } from "@ourworldindata/types"
 import {
     BlankOwidTable,
@@ -116,8 +117,6 @@ import {
     DEFAULT_GRAPHER_CONFIG_SCHEMA,
     DEFAULT_GRAPHER_WIDTH,
     DEFAULT_GRAPHER_HEIGHT,
-    getVariableDataRoute,
-    getVariableMetadataRoute,
     DEFAULT_GRAPHER_FRAME_PADDING,
     DEFAULT_GRAPHER_ENTITY_TYPE,
     DEFAULT_GRAPHER_ENTITY_TYPE_PLURAL,
@@ -125,7 +124,10 @@ import {
     STATIC_EXPORT_DETAIL_SPACING,
     GRAPHER_LIGHT_TEXT,
     GRAPHER_LOADED_EVENT_NAME,
+    isContinentsVariableId,
+    isPopulationVariableId,
 } from "../core/GrapherConstants"
+import { loadVariableDataAndMetadata } from "./loadVariable"
 import Cookies from "js-cookie"
 import {
     ChartDimension,
@@ -198,6 +200,12 @@ import {
     type GrapherExport,
 } from "../captionedChart/StaticChartRasterizer.js"
 import { SlopeChartManager } from "../slopeCharts/SlopeChart"
+import { SidePanel } from "../sidePanel/SidePanel"
+import {
+    EntitySelector,
+    type EntitySelectorState,
+} from "../entitySelector/EntitySelector"
+import { SlideInDrawer } from "../slideInDrawer/SlideInDrawer"
 
 declare global {
     interface Window {
@@ -244,21 +252,9 @@ async function loadVariablesDataSite(
     variableIds: number[],
     dataApiUrl: string
 ): Promise<MultipleOwidVariableDataDimensionsMap> {
-    const loadVariableDataPromises = variableIds.map(async (variableId) => {
-        const dataPromise = fetch(getVariableDataRoute(dataApiUrl, variableId))
-        const metadataPromise = fetch(
-            getVariableMetadataRoute(dataApiUrl, variableId)
-        )
-        const [dataResponse, metadataResponse] = await Promise.all([
-            dataPromise,
-            metadataPromise,
-        ])
-        if (!dataResponse.ok) throw new Error(dataResponse.statusText)
-        if (!metadataResponse.ok) throw new Error(metadataResponse.statusText)
-        const data = await dataResponse.json()
-        const metadata = await metadataResponse.json()
-        return { data, metadata }
-    })
+    const loadVariableDataPromises = variableIds.map((variableId) =>
+        loadVariableDataAndMetadata(variableId, dataApiUrl)
+    )
     const variablesData: OwidVariableDataMetadataDimensions[] =
         await Promise.all(loadVariableDataPromises)
     const variablesDataMap = new Map(
@@ -457,6 +453,9 @@ export class Grapher
     @observable.ref inputTable: OwidTable
 
     @observable.ref legacyConfigAsAuthored: Partial<LegacyGrapherInterface> = {}
+
+    // stored on Grapher so state is preserved when switching to full-screen mode
+    @observable entitySelectorState: Partial<EntitySelectorState> = {}
 
     @computed get dataApiUrlForAdmin(): string | undefined {
         return this.props.dataApiUrlForAdmin
@@ -685,6 +684,25 @@ export class Grapher
         return this.xAxis.toObject()
     }
 
+    @computed get showLegend(): boolean {
+        // hide the legend for stacked bar charts
+        // if the legend only ever shows a single entity
+        if (this.isStackedBar) {
+            const seriesStrategy =
+                this.chartInstance.seriesStrategy ||
+                autoDetectSeriesStrategy(this, true)
+            const hasSingleEntity =
+                this.selection.selectedEntityNames.length === 1 &&
+                (this.hideEntityControls || !this.canAddEntities)
+            const hideLegend =
+                this.hideLegend ||
+                (seriesStrategy === SeriesStrategy.entity && hasSingleEntity)
+            return !hideLegend
+        }
+
+        return !this.hideLegend
+    }
+
     // table that is used for display in the table tab
     @computed get tableForDisplay(): OwidTable {
         const table = this.table
@@ -805,23 +823,24 @@ export class Grapher
 
     tooltips?: TooltipManager["tooltips"] = observable.map({}, { deep: false })
     @observable isPlaying = false
-    @observable.ref isSelectingData = false
+
+    @observable.ref isEntitySelectorModalOrDrawerOpen = false
 
     @observable.ref isSourcesModalOpen = false
     @observable.ref isDownloadModalOpen = false
     @observable.ref isEmbedModalOpen = false
 
-    @computed private get isStatic(): boolean {
+    @computed get isStatic(): boolean {
         return this.renderToStatic || this.isExportingToSvgOrPng
     }
 
     private get isStaging(): boolean {
-        if (typeof location === undefined) return false
+        if (typeof location === "undefined") return false
         return location.host.includes("staging")
     }
 
     private get isLocalhost(): boolean {
-        if (typeof location === undefined) return false
+        if (typeof location === "undefined") return false
         return location.host.includes("localhost")
     }
 
@@ -1030,6 +1049,17 @@ export class Grapher
         )
     }
 
+    /**
+     * Plots time on the x-axis.
+     */
+    @computed private get hasTimeDimension(): boolean {
+        return this.isStackedBar || this.isStackedArea || this.isLineChart
+    }
+
+    @computed private get hasTimeDimensionButTimelineIsHidden(): boolean {
+        return this.hasTimeDimension && !!this.hideTimeline
+    }
+
     @computed get startHandleTimeBound(): TimeBound {
         if (this.onlySingleTimeSelectionPossible) return this.endHandleTimeBound
         return this.timelineHandleTimeBounds[0]
@@ -1178,6 +1208,19 @@ export class Grapher
             const time = maxTimeBoundFromJSONOrPositiveInfinity(this.map.time)
             return [time, time]
         }
+
+        // If the timeline is hidden on the chart tab but displayed on the table tab
+        // (which is the case for charts that plot time on the x-axis),
+        // we always want to use the authored `minTime` and `maxTime` for the chart,
+        // irrespective of the time range the user might have selected on the table tab
+        if (this.isOnChartTab && this.hasTimeDimensionButTimelineIsHidden) {
+            const { minTime, maxTime } = this.authorsVersion
+            return [
+                minTimeBoundFromJSONOrNegativeInfinity(minTime),
+                maxTimeBoundFromJSONOrPositiveInfinity(maxTime),
+            ]
+        }
+
         return [
             // Handle `undefined` values in minTime/maxTime
             minTimeBoundFromJSONOrNegativeInfinity(this.minTime),
@@ -1273,12 +1316,7 @@ export class Grapher
             ...noteDetails,
         ])
 
-        const validDetails = uniqueDetails.filter((detailId: string) => {
-            const detail = window.details?.[detailId]
-            return detail !== undefined
-        })
-
-        return validDetails
+        return uniqueDetails
     }
 
     @computed get detailsMarkerInSvg(): DetailsMarker {
@@ -1352,7 +1390,7 @@ export class Grapher
         return !!(
             !this.forceHideAnnotationFieldsInTitle?.entity &&
             this.tab === GrapherTabOption.chart &&
-            (seriesStrategy !== SeriesStrategy.entity || this.hideLegend) &&
+            (seriesStrategy !== SeriesStrategy.entity || !this.showLegend) &&
             selectedEntityNames.length === 1 &&
             (showEntityAnnotation ||
                 this.canChangeEntity ||
@@ -1427,9 +1465,14 @@ export class Grapher
             case GrapherTabOption.map:
                 return !this.map.hideTimeline
 
-            // use the chart-level `hideTimeline` option for the table, too
-            case GrapherTabOption.table:
+            // use the chart-level `hideTimeline` option
             case GrapherTabOption.chart:
+                return !this.hideTimeline
+
+            // use the chart-level `hideTimeline` option for the table, with some exceptions
+            case GrapherTabOption.table:
+                // always show the timeline for charts that plot time on the x-axis
+                if (this.hasTimeDimension) return true
                 return !this.hideTimeline
 
             default:
@@ -1532,8 +1575,14 @@ export class Grapher
         const { yColumnSlugs, xColumnSlug, sizeColumnSlug, colorColumnSlug } =
             this
 
+        // sort y columns by their display name
+        const sortedYColumnSlugs = sortBy(
+            yColumnSlugs,
+            (slug) => this.inputTable.get(slug).titlePublicOrDisplayName.title
+        )
+
         return excludeUndefined([
-            ...yColumnSlugs,
+            ...sortedYColumnSlugs,
             xColumnSlug,
             sizeColumnSlug,
             colorColumnSlug,
@@ -1547,7 +1596,7 @@ export class Grapher
         // sort y-columns by their display name
         const sortedYColumnSlugs = sortBy(
             yColumnSlugs,
-            (slug) => this.inputTable.get(slug).titlePublicOrDisplayName
+            (slug) => this.inputTable.get(slug).titlePublicOrDisplayName.title
         )
 
         const columnSlugs = excludeUndefined([
@@ -1569,21 +1618,12 @@ export class Grapher
             this
         const columnSlugs: string[] = []
 
-        // "Countries Continent"
-        const isContinentsVariableId = (id: string): boolean => id === "123"
-
         // exclude "Countries Continent" if it's used as the color dimension in a scatter plot, slope chart etc.
         if (
             colorColumnSlug !== undefined &&
             !isContinentsVariableId(colorColumnSlug)
         )
             columnSlugs.push(colorColumnSlug)
-
-        const isPopulationVariableId = (id: string): boolean =>
-            id === "525709" || // "Population (historical + projections), Gapminder, HYDE & UN"
-            id === "525711" || // "Population (historical estimates), Gapminder, HYDE & UN"
-            id === "597929" || // "Population (various sources, 2023.1)"
-            id === "597930" // "Population (various sources, 2023.1)"
 
         if (xColumnSlug !== undefined) {
             // exclude population variable if it's used as the x dimension in a marimekko
@@ -1732,17 +1772,28 @@ export class Grapher
     @computed get isLineChartThatTurnedIntoDiscreteBar(): boolean {
         if (!this.isLineChart) return false
 
+        let { minTime, maxTime } = this
+
+        // if we have a time dimension but the timeline is hidden,
+        // we always want to use the authored `minTime` and `maxTime`,
+        // irrespective of the time range the user might have selected
+        // on the table tab
+        if (this.hasTimeDimensionButTimelineIsHidden) {
+            minTime = this.authorsVersion.minTime
+            maxTime = this.authorsVersion.maxTime
+        }
+
         // This is the easy case: minTime and maxTime are the same, no need to do
         // more fancy checks
-        if (this.minTime === this.maxTime) return true
+        if (minTime === maxTime) return true
 
         // We can have cases where minTime = Infinity and/or maxTime = -Infinity,
         // but still only a single year is selected.
         // To check for that we need to look at the times array.
         const times = this.tableAfterAuthorTimelineFilter.timeColumn.uniqValues
-        const minTime = findClosestTime(times, this.minTime ?? -Infinity)
-        const maxTime = findClosestTime(times, this.maxTime ?? Infinity)
-        return minTime !== undefined && minTime === maxTime
+        const closestMinTime = findClosestTime(times, minTime ?? -Infinity)
+        const closestMaxTime = findClosestTime(times, maxTime ?? Infinity)
+        return closestMinTime !== undefined && closestMinTime === closestMaxTime
     }
 
     @computed get supportsMultipleYColumns(): boolean {
@@ -1768,7 +1819,7 @@ export class Grapher
         this.xDimension!.targetYear = value
     }
 
-    @computed get idealBounds(): Bounds {
+    @computed get defaultBounds(): Bounds {
         return new Bounds(0, 0, DEFAULT_GRAPHER_WIDTH, DEFAULT_GRAPHER_HEIGHT)
     }
 
@@ -1790,11 +1841,11 @@ export class Grapher
     getStaticBounds(format: GrapherStaticFormat): Bounds {
         switch (format) {
             case GrapherStaticFormat.landscape:
-                return this.idealBounds
+                return this.defaultBounds
             case GrapherStaticFormat.square:
                 return new Bounds(0, 0, 540, 540)
             default:
-                return this.idealBounds
+                return this.defaultBounds
         }
     }
 
@@ -2006,14 +2057,14 @@ export class Grapher
         return isMobile()
     }
 
-    @computed private get bounds(): Bounds {
+    @computed private get externalBounds(): Bounds {
         return this.props.bounds ?? DEFAULT_BOUNDS
     }
 
     @computed private get isPortrait(): boolean {
         return (
-            this.bounds.width < this.bounds.height &&
-            this.bounds.width < DEFAULT_GRAPHER_WIDTH
+            this.externalBounds.width < this.externalBounds.height &&
+            this.externalBounds.width < DEFAULT_GRAPHER_WIDTH
         )
     }
 
@@ -2029,7 +2080,7 @@ export class Grapher
         const {
             isEditor,
             isExportingToSvgOrPng,
-            bounds,
+            externalBounds,
             widthForDeviceOrientation,
             heightForDeviceOrientation,
             isInIFrame,
@@ -2067,8 +2118,8 @@ export class Grapher
 
         // If the available space is very small, we use all of the space given to us
         if (
-            bounds.height < heightForDeviceOrientation ||
-            bounds.width < widthForDeviceOrientation
+            externalBounds.height < heightForDeviceOrientation ||
+            externalBounds.width < widthForDeviceOrientation
         )
             return false
 
@@ -2077,20 +2128,9 @@ export class Grapher
 
     // If we have a big screen to be in, we can define our own aspect ratio and sit in the center
     @computed private get scaleToFitIdeal(): number {
-        const {
-            bounds,
-            isInFullScreenMode,
-            widthForDeviceOrientation,
-            heightForDeviceOrientation,
-            windowInnerWidth,
-            windowInnerHeight,
-        } = this
-        const givenBounds = isInFullScreenMode
-            ? { width: windowInnerWidth!, height: windowInnerHeight! }
-            : bounds
         return Math.min(
-            (givenBounds.width * 0.95) / widthForDeviceOrientation,
-            (givenBounds.height * 0.95) / heightForDeviceOrientation
+            (this.availableWidth * 0.95) / this.widthForDeviceOrientation,
+            (this.availableHeight * 0.95) / this.heightForDeviceOrientation
         )
     }
 
@@ -2100,53 +2140,80 @@ export class Grapher
         return windowInnerWidth < 940 ? 0 : 40
     }
 
-    // These are the final render dimensions
-    @computed private get renderWidth(): number {
+    @computed get hideFullScreenButton(): boolean {
+        const { windowInnerHeight } = this
+        if (!windowInnerHeight) return true
+        return this.windowInnerHeight! < this.frameBounds.height
+    }
+
+    @computed private get availableWidth(): number {
         const {
-            bounds,
+            externalBounds,
             isInFullScreenMode,
-            useIdealBounds,
-            widthForDeviceOrientation,
-            scaleToFitIdeal,
             windowInnerWidth,
             fullScreenPadding,
         } = this
 
-        if (useIdealBounds) {
-            return Math.floor(widthForDeviceOrientation * scaleToFitIdeal)
-        }
-
         return Math.floor(
             isInFullScreenMode
                 ? windowInnerWidth! - 2 * fullScreenPadding
-                : bounds.width
+                : externalBounds.width
         )
     }
 
-    @computed private get renderHeight(): number {
+    @computed private get availableHeight(): number {
         const {
-            bounds,
+            externalBounds,
             isInFullScreenMode,
-            useIdealBounds,
-            heightForDeviceOrientation,
-            scaleToFitIdeal,
             windowInnerHeight,
             fullScreenPadding,
         } = this
 
-        if (useIdealBounds) {
-            return Math.floor(heightForDeviceOrientation * scaleToFitIdeal)
-        }
-
         return Math.floor(
             isInFullScreenMode
                 ? windowInnerHeight! - 2 * fullScreenPadding
-                : bounds.height
+                : externalBounds.height
         )
     }
 
-    @computed get tabBounds(): Bounds {
-        return new Bounds(0, 0, this.renderWidth, this.renderHeight)
+    @computed private get idealWidth(): number {
+        return Math.floor(this.widthForDeviceOrientation * this.scaleToFitIdeal)
+    }
+
+    @computed private get idealHeight(): number {
+        return Math.floor(
+            this.heightForDeviceOrientation * this.scaleToFitIdeal
+        )
+    }
+
+    @computed get frameBounds(): Bounds {
+        return this.useIdealBounds
+            ? new Bounds(0, 0, this.idealWidth, this.idealHeight)
+            : new Bounds(0, 0, this.availableWidth, this.availableHeight)
+    }
+
+    @computed get captionedChartBounds(): Bounds {
+        // if there's no panel, the chart takes up the whole frame
+        if (!this.isEntitySelectorPanelActive) return this.frameBounds
+
+        return new Bounds(
+            0,
+            0,
+            // the chart takes up 9 columns in 12-column grid
+            (9 / 12) * this.frameBounds.width,
+            this.frameBounds.height - 2 // 2px accounts for the border
+        )
+    }
+
+    @computed get sidePanelBounds(): Bounds | undefined {
+        if (!this.isEntitySelectorPanelActive) return
+
+        return new Bounds(
+            0, // not in use; intentionally set to zero
+            0, // not in use; intentionally set to zero
+            this.frameBounds.width - this.captionedChartBounds.width,
+            this.captionedChartBounds.height
+        )
     }
 
     base: React.RefObject<HTMLDivElement> = React.createRef()
@@ -2166,7 +2233,7 @@ export class Grapher
         this.uncaughtError = undefined
     }
 
-    private get commandPalette(): JSX.Element | null {
+    private get commandPalette(): React.ReactElement | null {
         return this.props.enableKeyboardShortcuts ? (
             <CommandPalette commands={this.keyboardShortcuts} display="none" />
         ) : null
@@ -2464,7 +2531,7 @@ export class Grapher
     @action.bound dismissFullScreen(): void {
         // if a modal is open, dismiss it instead of exiting full-screen mode
         if (this.isModalOpen || this.isShareMenuActive) {
-            this.isSelectingData = false
+            this.isEntitySelectorModalOrDrawerOpen = false
             this.isSourcesModalOpen = false
             this.isEmbedModalOpen = false
             this.isDownloadModalOpen = false
@@ -2476,14 +2543,14 @@ export class Grapher
 
     @computed get isModalOpen(): boolean {
         return (
-            this.isSelectingData ||
+            this.isEntitySelectorModalOpen ||
             this.isSourcesModalOpen ||
             this.isEmbedModalOpen ||
             this.isDownloadModalOpen
         )
     }
 
-    private renderError(): JSX.Element {
+    private renderError(): React.ReactElement {
         return (
             <div
                 title={this.uncaughtError?.message}
@@ -2496,7 +2563,7 @@ export class Grapher
                     justifyContent: "center",
                     textAlign: "center",
                     lineHeight: 1.5,
-                    padding: "3rem",
+                    padding: "48px",
                 }}
             >
                 <p style={{ color: "#cc0000", fontWeight: 700 }}>
@@ -2523,23 +2590,7 @@ export class Grapher
         )
     }
 
-    @action.bound
-    resetAnnotation(): void {
-        this.renderAnnotation(undefined)
-    }
-
-    @action.bound
-    renderAnnotation(annotation: Annotation | undefined): void {
-        this.setAuthoredVersion(this.props)
-        this.reset()
-        this.updateFromObject({ ...this.props })
-        this.populateFromQueryParams(
-            legacyToCurrentGrapherQueryParams(this.props.queryStr ?? "")
-        )
-        this.annotation = annotation
-    }
-
-    private renderGrapherComponent(): JSX.Element {
+    private renderGrapherComponent(): React.ReactElement {
         const containerClasses = classnames({
             GrapherComponent: true,
             GrapherPortraitClass: this.isPortrait,
@@ -2553,7 +2604,7 @@ export class Grapher
 
         const activeBounds = this.renderToStatic
             ? this.staticBounds
-            : this.tabBounds
+            : this.frameBounds
 
         const containerStyle = {
             width: activeBounds.width,
@@ -2576,7 +2627,7 @@ export class Grapher
         )
     }
 
-    render(): JSX.Element | undefined {
+    render(): React.ReactElement | undefined {
         // TODO how to handle errors in exports?
         // TODO remove this? should have a simple toStaticSVG for exporting
         if (this.isExportingToSvgOrPng) return <CaptionedChart manager={this} />
@@ -2595,23 +2646,51 @@ export class Grapher
         return this.renderGrapherComponent()
     }
 
-    private renderReady(): JSX.Element | null {
+    private renderReady(): React.ReactElement | null {
         if (!this.hasBeenVisible) return null
+
         if (this.renderToStatic) {
             return <StaticCaptionedChart manager={this} />
         }
+
         return (
             <>
-                <CaptionedChart manager={this} />
-                <TooltipContainer
-                    containerWidth={this.renderWidth}
-                    containerHeight={this.renderHeight}
-                    tooltipProvider={this}
-                />
+                {/* captioned chart and entity selector */}
+                <div className="CaptionedChartAndSidePanel">
+                    <CaptionedChart manager={this} />
+                    {this.sidePanelBounds && (
+                        <SidePanel bounds={this.sidePanelBounds}>
+                            <EntitySelector manager={this} />
+                        </SidePanel>
+                    )}
+                </div>
+
+                {/* modals */}
                 {this.isSourcesModalOpen && <SourcesModal manager={this} />}
                 {this.isDownloadModalOpen && <DownloadModal manager={this} />}
                 {this.isEmbedModalOpen && <EmbedModal manager={this} />}
-                {this.isSelectingData && <EntitySelectorModal manager={this} />}
+                {this.isEntitySelectorModalOpen && (
+                    <EntitySelectorModal manager={this} />
+                )}
+
+                {/* entity selector in a slide-in drawer */}
+                <SlideInDrawer
+                    grapherRef={this.base}
+                    active={this.isEntitySelectorDrawerOpen}
+                    toggle={() => {
+                        this.isEntitySelectorModalOrDrawerOpen =
+                            !this.isEntitySelectorModalOrDrawerOpen
+                    }}
+                >
+                    <EntitySelector manager={this} autoFocus={true} />
+                </SlideInDrawer>
+
+                {/* tooltip */}
+                <TooltipContainer
+                    containerWidth={this.captionedChartBounds.width}
+                    containerHeight={this.captionedChartBounds.height}
+                    tooltipProvider={this}
+                />
             </>
         )
     }
@@ -2668,7 +2747,9 @@ export class Grapher
     }
 
     @action.bound private setBaseFontSize(): void {
-        this.baseFontSize = this.computeBaseFontSizeFromWidth(this.tabBounds)
+        this.baseFontSize = this.computeBaseFontSizeFromWidth(
+            this.captionedChartBounds
+        )
     }
 
     @computed get fontSize(): number {
@@ -2685,27 +2766,27 @@ export class Grapher
 
     @computed get isNarrow(): boolean {
         if (this.isStatic) return false
-        return this.renderWidth <= 400
+        return this.frameBounds.width <= 400
     }
 
     // SemiNarrow charts shorten their button labels to fit within the controls row
     @computed get isSemiNarrow(): boolean {
         if (this.isStatic) return false
-        return this.renderWidth <= 550
+        return this.frameBounds.width <= 550
     }
 
     // Small charts are rendered into 6 or 7 columns in a 12-column grid layout
     // (e.g. side-by-side charts or charts in the All Charts block)
     @computed get isSmall(): boolean {
         if (this.isStatic) return false
-        return this.renderWidth <= 740
+        return this.frameBounds.width <= 740
     }
 
     // Medium charts are rendered into 8 columns in a 12-column grid layout
     // (e.g. stand-alone charts in the main text of an article)
     @computed get isMedium(): boolean {
         if (this.isStatic) return false
-        return this.renderWidth <= 845
+        return this.frameBounds.width <= 845
     }
 
     @computed get isStaticAndSmall(): boolean {
@@ -2714,8 +2795,8 @@ export class Grapher
     }
 
     @computed get areStaticBoundsSmall(): boolean {
-        const { idealBounds, staticBounds } = this
-        const idealPixelCount = idealBounds.width * idealBounds.height
+        const { defaultBounds, staticBounds } = this
+        const idealPixelCount = defaultBounds.width * defaultBounds.height
         const staticPixelCount = staticBounds.width * staticBounds.height
         return staticPixelCount < 0.66 * idealPixelCount
     }
@@ -2847,6 +2928,14 @@ export class Grapher
         )
     }
 
+    @computed get showRelatedQuestion(): boolean {
+        return (
+            !!this.relatedQuestions &&
+            !!this.hasRelatedQuestion &&
+            !!this.isRelatedQuestionTargetDifferentFromCurrentPage
+        )
+    }
+
     @action.bound clearSelection(): void {
         this.selection.clearSelection()
         this.applyOriginalSelectionAsAuthored()
@@ -2901,6 +2990,9 @@ export class Grapher
         this.timelineMaxTime = grapher.timelineMaxTime
         this.relatedQuestions = grapher.relatedQuestions
         this.sourceDesc = grapher.sourceDesc
+        this.missingDataStrategy = grapher.missingDataStrategy
+        this.minTime = grapher.minTime
+        this.maxTime = grapher.maxTime
     }
 
     debounceMode = false
@@ -2999,7 +3091,17 @@ export class Grapher
     }
 
     @computed get embedUrl(): string | undefined {
-        return this.manager?.embedDialogUrl ?? this.canonicalUrl
+        const url = this.manager?.embedDialogUrl ?? this.canonicalUrl
+        if (!url) return
+
+        // We want to preserve the tab in the embed URL so that if we change the
+        // default view of the chart, it won't change existing embeds.
+        // See https://github.com/owid/owid-grapher/issues/2805
+        let urlObj = Url.fromURL(url)
+        if (!urlObj.queryParams.tab) {
+            urlObj = urlObj.updateQueryParams({ tab: this.allParams.tab })
+        }
+        return urlObj.fullUrl
     }
 
     @computed get embedDialogAdditionalElements():
@@ -3066,50 +3168,6 @@ export class Grapher
             : timeColumn.formatValue(value)
     }
 
-    @computed get hasChangeEntityButton(): boolean {
-        return this.canChangeEntity
-    }
-
-    @computed get showChangeEntityButton(): boolean {
-        return !this.hideEntityControls && this.hasChangeEntityButton
-    }
-
-    @computed get hasAddEntityButton(): boolean {
-        return (
-            this.canSelectMultipleEntities &&
-            (this.isLineChart ||
-                this.isStackedArea ||
-                this.isDiscreteBar ||
-                this.isStackedDiscreteBar)
-        )
-    }
-
-    @computed get showAddEntityButton(): boolean {
-        return !this.hideEntityControls && this.hasAddEntityButton
-    }
-
-    @computed get hasSelectEntitiesButton(): boolean {
-        return (
-            this.addCountryMode !== EntitySelectionMode.Disabled &&
-            this.numSelectableEntityNames > 1 &&
-            !this.showAddEntityButton &&
-            !this.showChangeEntityButton
-        )
-    }
-
-    @computed get showSelectEntitiesButton(): boolean {
-        return !this.hideEntityControls && this.hasSelectEntitiesButton
-    }
-
-    @computed get hasEntitySelectionToggle(): boolean {
-        return (
-            this.hasChartTab &&
-            (this.hasChangeEntityButton ||
-                this.hasAddEntityButton ||
-                this.hasSelectEntitiesButton)
-        )
-    }
-
     @computed get canSelectMultipleEntities(): boolean {
         if (this.numSelectableEntityNames < 2) return false
         if (this.addCountryMode === EntitySelectionMode.MultipleEntities)
@@ -3123,6 +3181,93 @@ export class Grapher
         return false
     }
 
+    @computed get canChangeEntity(): boolean {
+        return (
+            this.hasChartTab &&
+            !this.isScatter &&
+            !this.canSelectMultipleEntities &&
+            this.addCountryMode === EntitySelectionMode.SingleEntity &&
+            this.numSelectableEntityNames > 1
+        )
+    }
+
+    @computed get canAddEntities(): boolean {
+        return (
+            this.hasChartTab &&
+            this.canSelectMultipleEntities &&
+            (this.isLineChart ||
+                this.isStackedArea ||
+                this.isDiscreteBar ||
+                this.isStackedDiscreteBar)
+        )
+    }
+
+    @computed get canHighlightEntities(): boolean {
+        return (
+            this.hasChartTab &&
+            this.addCountryMode !== EntitySelectionMode.Disabled &&
+            this.numSelectableEntityNames > 1 &&
+            !this.canAddEntities &&
+            !this.canChangeEntity
+        )
+    }
+
+    @computed get canChangeAddOrHighlightEntities(): boolean {
+        return (
+            this.canChangeEntity ||
+            this.canAddEntities ||
+            this.canHighlightEntities
+        )
+    }
+
+    @computed get showEntitySelectorAs(): GrapherWindowType {
+        if (
+            this.frameBounds.width > 940 &&
+            // don't use the panel if the grapher is embedded
+            ((!this.isInIFrame && !this.isEmbeddedInAnOwidPage) ||
+                // unless we're in full-screen mode
+                this.isInFullScreenMode)
+        )
+            return GrapherWindowType.panel
+
+        return this.isSemiNarrow
+            ? GrapherWindowType.modal
+            : GrapherWindowType.drawer
+    }
+
+    @computed get isEntitySelectorPanelActive(): boolean {
+        return (
+            !this.hideEntityControls &&
+            this.canChangeAddOrHighlightEntities &&
+            this.isOnChartTab &&
+            this.showEntitySelectorAs === GrapherWindowType.panel
+        )
+    }
+
+    @computed get showEntitySelectionToggle(): boolean {
+        return (
+            !this.hideEntityControls &&
+            this.canChangeAddOrHighlightEntities &&
+            this.isOnChartTab &&
+            (this.showEntitySelectorAs === GrapherWindowType.modal ||
+                this.showEntitySelectorAs === GrapherWindowType.drawer)
+        )
+    }
+
+    @computed get isEntitySelectorModalOpen(): boolean {
+        return (
+            this.isEntitySelectorModalOrDrawerOpen &&
+            this.showEntitySelectorAs === GrapherWindowType.modal
+        )
+    }
+
+    @computed get isEntitySelectorDrawerOpen(): boolean {
+        return (
+            this.isEntitySelectorModalOrDrawerOpen &&
+            this.showEntitySelectorAs === GrapherWindowType.drawer
+        )
+    }
+
     // This is just a helper method to return the correct table for providing entity choices. We want to
     // provide the root table, not the transformed table.
     // A user may have added time or other filters that would filter out all rows from certain entities, but
@@ -3132,21 +3277,8 @@ export class Grapher
         return this.selection.numAvailableEntityNames
     }
 
-    @computed get canChangeEntity(): boolean {
-        return (
-            !this.isScatter &&
-            !this.canSelectMultipleEntities &&
-            this.addCountryMode === EntitySelectionMode.SingleEntity &&
-            this.numSelectableEntityNames > 1
-        )
-    }
-
     @computed get entitiesAreCountryLike(): boolean {
         return !!this.entityType.match(/\bcountry\b/i)
-    }
-
-    @computed get startSelectingWhenLineClicked(): boolean {
-        return this.showAddEntityButton && !this.isMobile
     }
 
     @observable hideTitle = false

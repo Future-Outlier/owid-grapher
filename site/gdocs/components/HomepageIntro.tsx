@@ -8,7 +8,7 @@ import { formatAuthors, groupBy } from "@ourworldindata/utils"
 import { Button } from "@ourworldindata/components"
 import { useLinkedDocument } from "../utils.js"
 import { DocumentContext } from "../OwidGdoc.js"
-import Image from "./Image.js"
+import Image, { ImageParentContainer } from "./Image.js"
 import { BlockErrorFallback } from "./BlockErrorBoundary.js"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
 import { faArrowRight } from "@fortawesome/free-solid-svg-icons"
@@ -17,6 +17,7 @@ import { BAKED_BASE_URL } from "../../../settings/clientSettings.js"
 type FeaturedWorkTileProps = EnrichedBlockHomepageIntroPost & {
     isTertiary?: boolean
     className?: string
+    thumbnailSize?: ImageParentContainer
 }
 
 function FeaturedWorkTile({
@@ -28,6 +29,7 @@ function FeaturedWorkTile({
     url,
     filename,
     className = "",
+    thumbnailSize = "thumbnail",
 }: FeaturedWorkTileProps) {
     const { linkedDocument, errorMessage } = useLinkedDocument(url)
     const { isPreviewing } = useContext(DocumentContext)
@@ -71,7 +73,11 @@ function FeaturedWorkTile({
             })}
         >
             {thumbnailFilename && (
-                <Image shouldLightbox={false} filename={thumbnailFilename} />
+                <Image
+                    shouldLightbox={false}
+                    filename={thumbnailFilename}
+                    containerType={thumbnailSize}
+                />
             )}
             {kicker && (
                 <span className="h6-black-caps homepage-intro__featured-work-kicker">
@@ -146,9 +152,7 @@ export function HomepageIntro({ className, featuredWork }: HomepageIntroProps) {
                             We are a non-profit — all our work is free to use
                             and open source.
                         </strong>{" "}
-                        We believe the best research and data should be
-                        accessible to everyone. Consider supporting us if you
-                        find our work valuable.
+                        Consider supporting us if you find our work valuable.
                     </p>
                     <Button
                         className="homepage-intro__donate-button"
@@ -175,7 +179,11 @@ export function HomepageIntro({ className, featuredWork }: HomepageIntroProps) {
                 <div className="grid grid-cols-9 span-cols-9 span-md-cols-12 homepage-intro__featured-work-container">
                     <div className="homepage-intro__primary-tiles span-cols-6">
                         {primary.map((work, i) => (
-                            <FeaturedWorkTile key={i} {...work} />
+                            <FeaturedWorkTile
+                                thumbnailSize="span-6"
+                                key={i}
+                                {...work}
+                            />
                         ))}
                     </div>
                     <div className="homepage-intro__secondary-tiles span-cols-3 col-start-7">

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect } from "react"
 import ReactDOM from "react-dom"
 import {
     faListUl,
@@ -24,7 +24,6 @@ import { SiteMobileMenu } from "./SiteMobileMenu.js"
 import { SiteNavigationToggle } from "./SiteNavigationToggle.js"
 import classnames from "classnames"
 import { useTriggerOnEscape } from "./hooks.js"
-import { BAKED_BASE_URL } from "../settings/clientSettings.js"
 import { AUTOCOMPLETE_CONTAINER_ID } from "./search/Autocomplete.js"
 
 export enum Menu {
@@ -49,9 +48,6 @@ export const SiteNavigation = ({
     isOnHomepage?: boolean
 }) => {
     const [menu, setActiveMenu] = React.useState<Menu | null>(null)
-    const [categorizedTopics, setCategorizedTopics] = useState<
-        CategoryWithEntries[]
-    >([])
     const [query, setQuery] = React.useState<string>("")
 
     const isActiveMobileMenu =
@@ -72,6 +68,8 @@ export const SiteNavigation = ({
         // Without this, the panel initially renders at the same width as the shrunk search input
         // Fortunately we only have to do this when it mounts - it takes care of resizes
         setTimeout(() => {
+            // Only run when screen size is large, .aa-DetachedContainer gets positioned correctly
+            if (window.innerWidth < 768) return
             const [panel, autocompleteContainer] = [
                 ".aa-Panel",
                 AUTOCOMPLETE_CONTAINER_ID,
@@ -106,21 +104,6 @@ export const SiteNavigation = ({
         }
     }, [query])
 
-    useEffect(() => {
-        const fetchCategorizedTopics = async () => {
-            const response = await fetch(`${BAKED_BASE_URL}/headerMenu.json`, {
-                method: "GET",
-                credentials: "same-origin",
-                headers: {
-                    Accept: "application/json",
-                },
-            })
-            const json = await response.json()
-            setCategorizedTopics(json.categories)
-        }
-        void fetchCategorizedTopics()
-    }, [])
-
     useTriggerOnEscape(closeOverlay)
 
     return (
@@ -142,7 +125,7 @@ export const SiteNavigation = ({
                                 <SiteMobileMenu
                                     menu={menu}
                                     toggleMenu={toggleMenu}
-                                    topics={categorizedTopics}
+                                    topics={SiteNavigationStatic.categories}
                                     className="hide-sm-up"
                                 />
                             }
@@ -162,7 +145,9 @@ export const SiteNavigation = ({
                                         dropdown={
                                             <SiteNavigationTopics
                                                 onClose={closeOverlay}
-                                                topics={categorizedTopics}
+                                                topics={
+                                                    SiteNavigationStatic.categories
+                                                }
                                                 className="hide-sm-only"
                                             />
                                         }
@@ -420,6 +405,10 @@ export const SiteNavigationStatic: { categories: CategoryWithEntries[] } = {
                             slug: "smallpox",
                             title: "Smallpox",
                         },
+                        {
+                            slug: "neglected-tropical-diseases",
+                            title: "Neglected Tropical Diseases",
+                        },
                     ],
                 },
                 {
@@ -596,6 +585,10 @@ export const SiteNavigationStatic: { categories: CategoryWithEntries[] } = {
                         {
                             slug: "natural-disasters",
                             title: "Natural Disasters",
+                        },
+                        {
+                            slug: "wildfires",
+                            title: "Wildfires",
                         },
                         {
                             slug: "biodiversity",
@@ -1004,6 +997,10 @@ export const SiteNavigationStatic: { categories: CategoryWithEntries[] } = {
                     title: "LGBT+ Rights",
                 },
                 {
+                    slug: "corruption",
+                    title: "Corruption",
+                },
+                {
                     slug: "economic-inequality-by-gender",
                     title: "Economic Inequality by Gender",
                 },
@@ -1060,13 +1057,14 @@ export const SiteNavigationStatic: { categories: CategoryWithEntries[] } = {
     ],
 }
 
-export const UNIQUE_TOPIC_COUNT = SiteNavigationStatic.categories
-    .flatMap((category) => {
-        const subcategoryEntries =
-            category?.subcategories?.flatMap(
-                (subcategory) => subcategory.entries || []
-            ) || []
-        return [...category.entries, ...subcategoryEntries]
-    })
-    .map((entry) => entry.slug)
-    .filter((value, index, array) => array.indexOf(value) === index).length
+export const getUniqueTopicCount = () =>
+    SiteNavigationStatic.categories
+        .flatMap((category) => {
+            const subcategoryEntries =
+                category?.subcategories?.flatMap(
+                    (subcategory) => subcategory.entries || []
+                ) || []
+            return [...category.entries, ...subcategoryEntries]
+        })
+        .map((entry) => entry.slug)
+        .filter((value, index, array) => array.indexOf(value) === index).length

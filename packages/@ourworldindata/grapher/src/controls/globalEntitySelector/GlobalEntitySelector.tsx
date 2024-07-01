@@ -20,6 +20,7 @@ import {
     sortBy,
     getWindowUrl,
     setWindowUrl,
+    lazy,
 } from "@ourworldindata/utils"
 import { GrapherAnalytics } from "../../core/GrapherAnalytics"
 import { WorldEntityName } from "../../core/GrapherConstants"
@@ -44,18 +45,22 @@ interface DropdownEntity {
     value: string
 }
 
-const allEntities = sortBy(countries, (c) => c.name)
-    // Add 'World'
-    .concat([
-        {
-            name: WorldEntityName,
-            code: "OWID_WRL",
-            slug: "world",
-            regionType: "other",
-        },
-    ])
+const getAllEntitiesSortedWithWorld = lazy(() =>
+    sortBy(countries, (c) => c.name)
+        // Add 'World'
+        .concat([
+            {
+                name: WorldEntityName,
+                code: "OWID_WRL",
+                slug: "world",
+                regionType: "other",
+            },
+        ])
+)
 
-const Option = (props: OptionProps<DropdownEntity, true, any>): JSX.Element => {
+const Option = (
+    props: OptionProps<DropdownEntity, true, any>
+): React.ReactElement => {
     return (
         <div>
             <components.Option {...props}>
@@ -106,7 +111,7 @@ function SelectedItems(props: {
     emptyLabel: string
     canRemove?: boolean
     onRemove?: (item: EntityName) => void
-}): JSX.Element {
+}): React.ReactElement {
     const canRemove = (props.canRemove ?? true) && props.onRemove !== undefined
     const onRemove = props.onRemove || noop
     const isEmpty = props.selectedEntityNames.length === 0
@@ -187,7 +192,7 @@ export class GlobalEntitySelector extends React.Component<{
             const localCountryCode = await getUserCountryInformation()
             if (!localCountryCode) return
 
-            const country = allEntities.find(
+            const country = getAllEntitiesSortedWithWorld().find(
                 (entity): boolean => entity.code === localCountryCode.code
             )
             if (country) this.localEntityName = country.name
@@ -223,7 +228,7 @@ export class GlobalEntitySelector extends React.Component<{
         optionGroups = optionGroups.concat([
             {
                 label: "All countries",
-                options: allEntities
+                options: getAllEntitiesSortedWithWorld()
                     .map((entity) => entity.name)
                     .map(entityNameToOption),
             },
@@ -309,7 +314,7 @@ export class GlobalEntitySelector extends React.Component<{
         return this.selection.selectedEntityNames.map(entityNameToOption)
     }
 
-    private renderNarrow(): JSX.Element {
+    private renderNarrow(): React.ReactElement {
         return (
             <>
                 <div
@@ -344,7 +349,7 @@ export class GlobalEntitySelector extends React.Component<{
                                               acc.length === 0
                                                   ? [item]
                                                   : [...acc, ", ", item],
-                                          [] as (JSX.Element | string)[]
+                                          [] as (React.ReactElement | string)[]
                                       )}
                         </div>
                     )}
@@ -366,7 +371,7 @@ export class GlobalEntitySelector extends React.Component<{
         )
     }
 
-    private renderWide(): JSX.Element {
+    private renderWide(): React.ReactElement {
         return (
             <>
                 <div className="select-dropdown-container">
@@ -388,7 +393,7 @@ export class GlobalEntitySelector extends React.Component<{
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         return (
             <div
                 className={classnames("global-entity-control", {

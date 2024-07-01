@@ -7,11 +7,11 @@
 @import "tippy.js/dist/tippy.css";
 @import "tippy.js/themes/light.css";
 
-@import "antd/dist/antd.css";
 @import "@react-awesome-query-builder/antd/css/styles.css";
 @import "codemirror/lib/codemirror.css";
 
 @import "./GdocsIndexPage.scss";
+@import "./TagGraphPage.scss";
 
 html {
     font-size: 14px;
@@ -855,13 +855,6 @@ main:not(.ChartEditorPage):not(.GdocsEditPage) {
         0 0 0 0.2rem #fff;
 }
 
-.TagsIndexPage {
-    .badge {
-        font-size: 0.8em;
-        margin-right: 0.5em;
-    }
-}
-
 .TagBadge {
     display: inline-block;
     border-radius: 5px;
@@ -924,6 +917,11 @@ main:not(.ChartEditorPage):not(.GdocsEditPage) {
     font-size: 13px;
     font-weight: 400;
     text-decoration: none;
+}
+
+.redirect-emphasis {
+    text-decoration: underline;
+    text-decoration-color: #ccc;
 }
 
 .add-redirect-form {
@@ -1380,5 +1378,21 @@ main:not(.ChartEditorPage):not(.GdocsEditPage) {
 .PostsIndexPage {
     .button-with-margin {
         margin: 1px;
+    }
+}
+
+.TagsIndexPage__header {
+    display: flex;
+    justify-content: space-between;
+    p {
+        line-height: 32px;
+        margin: 0;
+    }
+}
+
+.TagsIndexPage__add-tag-modal {
+    input {
+        margin-bottom: 1rem;
+        display: block;
     }
 }

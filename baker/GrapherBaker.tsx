@@ -11,7 +11,6 @@ import {
     keyBy,
     mergePartialGrapherConfigs,
     compact,
-    merge,
     partition,
 } from "@ourworldindata/utils"
 import fs from "fs-extra"
@@ -27,6 +26,7 @@ import { glob } from "glob"
 import { isPathRedirectedToExplorer } from "../explorerAdminServer/ExplorerRedirects.js"
 import {
     getPostEnrichedBySlug,
+    getPostIdFromSlug,
     getPostRelatedCharts,
     getRelatedArticles,
     getRelatedResearchAndWritingForVariable,
@@ -38,7 +38,6 @@ import {
     DimensionProperty,
     OwidVariableWithSource,
     OwidChartDimensionInterface,
-    OwidGdocPostInterface,
     EnrichedFaq,
     FaqEntryData,
     FaqDictionary,
@@ -61,7 +60,7 @@ import { getSlugForTopicTag, getTagToSlugMap } from "./GrapherBakingUtils.js"
 import { knexRaw } from "../db/db.js"
 import { getRelatedChartsForVariable } from "../db/model/Chart.js"
 import pMap from "p-map"
-import { getGdocBaseObjectBySlug } from "../db/model/Gdoc/GdocFactory.js"
+import { getPublishedGdocBaseObjectBySlug } from "../db/model/Gdoc/GdocFactory.js"
 
 const renderDatapageIfApplicable = async (
     grapher: GrapherInterface,
@@ -72,6 +71,15 @@ const renderDatapageIfApplicable = async (
     const variable = await getVariableOfDatapageIfApplicable(grapher)
 
     if (!variable) return undefined
+
+    // When baking from `bakeSingleGrapherChart`, we cache imageMetadata to avoid fetching every image for every chart
+    // But when rendering a datapage from the mockSiteRouter we want to be able to fetch imageMetadata on the fly
+    // And this function is the point in the two paths where it makes sense to do so
+    if (!imageMetadataDictionary) {
+        imageMetadataDictionary = await getAllImages(knex).then((images) =>
+            keyBy(images, "filename")
+        )
+    }
 
     return await renderDataPageV2(
         {
@@ -168,23 +176,6 @@ export async function renderDataPageV2(
         gdocIdToFragmentIdToBlock[gdoc.id] = faqs.faqs
     })
 
-    const linkedCharts: OwidGdocPostInterface["linkedCharts"] = merge(
-        {},
-        ...compact(gdocs.map((gdoc) => gdoc?.linkedCharts))
-    )
-    const linkedDocuments: OwidGdocPostInterface["linkedDocuments"] = merge(
-        {},
-        ...compact(gdocs.map((gdoc) => gdoc?.linkedDocuments))
-    )
-    const imageMetadata: OwidGdocPostInterface["imageMetadata"] = merge(
-        {},
-        imageMetadataDictionary,
-        ...compact(gdocs.map((gdoc) => gdoc?.imageMetadata))
-    )
-    const relatedCharts: OwidGdocPostInterface["relatedCharts"] = gdocs.flatMap(
-        (gdoc) => gdoc?.relatedCharts ?? []
-    )
-
     const resolvedFaqsResults: EnrichedFaqLookupResult[] = variableMetadata
         .presentation?.faqs
         ? variableMetadata.presentation.faqs.map((faq) => {
@@ -219,10 +210,6 @@ export async function renderDataPageV2(
     }
 
     const faqEntries: FaqEntryData = {
-        linkedCharts,
-        linkedDocuments,
-        imageMetadata,
-        relatedCharts,
         faqs: resolvedFaqs?.flatMap((faq) => faq.enrichedFaq.content) ?? [],
     }
 
@@ -260,7 +247,7 @@ export async function renderDataPageV2(
         }
         let gdoc: OwidGdocBaseInterface | undefined = undefined
         if (slug) {
-            gdoc = await getGdocBaseObjectBySlug(knex, slug, true)
+            gdoc = await getPublishedGdocBaseObjectBySlug(knex, slug, true)
         }
         if (gdoc) {
             const citation = getShortPageCitation(
@@ -300,6 +287,15 @@ export async function renderDataPageV2(
     datapageData.relatedResearch =
         await getRelatedResearchAndWritingForVariable(knex, variableId)
 
+    const relatedResearchFilenames = datapageData.relatedResearch
+        .map((r) => r.imageUrl)
+        .filter((f): f is string => !!f)
+
+    const imageMetadata = lodash.pick(
+        imageMetadataDictionary,
+        uniq(relatedResearchFilenames)
+    )
+
     const tagToSlugMap = await getTagToSlugMap(knex)
 
     return renderToHtmlPage(
@@ -309,6 +305,7 @@ export async function renderDataPageV2(
             baseUrl={BAKED_BASE_URL}
             baseGrapherUrl={BAKED_GRAPHER_URL}
             isPreviewing={isPreviewing}
+            imageMetadata={imageMetadata}
             faqEntries={faqEntries}
             tagToSlugMap={tagToSlugMap}
         />
@@ -335,12 +332,13 @@ const renderGrapherPage = async (
     grapher: GrapherInterface,
     knex: db.KnexReadonlyTransaction
 ) => {
-    const postSlug = urlToSlug(grapher.originUrl || "")
-    const post = postSlug
-        ? await getPostEnrichedBySlug(knex, postSlug)
+    const postSlug = urlToSlug(grapher.originUrl || "") as string | undefined
+    // TODO: update this to use gdocs posts
+    const postId = postSlug
+        ? await getPostIdFromSlug(knex, postSlug)
         : undefined
-    const relatedCharts = post
-        ? await getPostRelatedCharts(knex, post.id)
+    const relatedCharts = postId
+        ? await getPostRelatedCharts(knex, postId)
         : undefined
     const relatedArticles = grapher.id
         ? await getRelatedArticles(knex, grapher.id)
@@ -349,7 +347,6 @@ const renderGrapherPage = async (
     return renderToHtmlPage(
         <GrapherPage
             grapher={grapher}
-            post={post}
             relatedCharts={relatedCharts}
             relatedArticles={relatedArticles}
             baseUrl={BAKED_BASE_URL}
@@ -488,7 +485,7 @@ export const bakeAllChangedGrapherPagesVariablesPngSvgAndDeleteRemovedGraphers =
         const chartsToBake: { id: number; config: string; slug: string }[] =
             await knexRaw(
                 knex,
-                `
+                `-- sql
                 SELECT
                     id, config, config->>'$.slug' as slug
                 FROM charts WHERE JSON_EXTRACT(config, "$.isPublished")=true
@@ -521,15 +518,21 @@ export const bakeAllChangedGrapherPagesVariablesPngSvgAndDeleteRemovedGraphers =
             {
                 width: 20,
                 total: chartsToBake.length + 1,
+                renderThrottle: 0,
             }
         )
 
         await pMap(
             jobs,
             async (job) => {
-                // TODO: not sure if the shared transaction will be an issue - I think it should be fine but just to put a flag here
-                // that this could be causing issues
-                await bakeSingleGrapherChart(job, knex)
+                // We want to run this code on multiple threads, so we need to
+                // be able to use multiple transactions so that we can use
+                // multiple connections to the database.
+                // Read-write consistency is not a concern here, thankfully.
+                await db.knexReadWriteTransaction(
+                    async (knex) => await bakeSingleGrapherChart(job, knex),
+                    db.TransactionCloseMode.KeepOpen
+                )
                 progressBar.tick({ name: `slug ${job.slug}` })
             },
             { concurrency: 10 }

@@ -11,6 +11,7 @@ import {
     OwidGdocMinimalPostInterface,
     OwidGdocHomepageMetadata,
     DbEnrichedLatestWork,
+    DbEnrichedAuthor,
 } from "@ourworldindata/types"
 import { get, getOwidGdocFromJSON } from "@ourworldindata/utils"
 import { DebugProvider } from "./DebugContext.js"
@@ -22,6 +23,7 @@ import { Homepage } from "./pages/Homepage.js"
 import { Author } from "./pages/Author.js"
 
 export const AttachmentsContext = createContext<{
+    linkedAuthors?: DbEnrichedAuthor[]
     linkedCharts: Record<string, LinkedChart>
     linkedIndicators: Record<number, LinkedIndicator>
     linkedDocuments: Record<string, OwidGdocMinimalPostInterface>
@@ -31,6 +33,7 @@ export const AttachmentsContext = createContext<{
     homepageMetadata?: OwidGdocHomepageMetadata
     latestWorkLinks?: DbEnrichedLatestWork[]
 }>({
+    linkedAuthors: [],
     linkedDocuments: {},
     imageMetadata: {},
     linkedCharts: {},
@@ -66,7 +69,7 @@ type OwidGdocProps = OwidGdocInterface & {
 export function OwidGdoc({
     isPreviewing = false,
     ...props
-}: OwidGdocProps): JSX.Element {
+}: OwidGdocProps): React.ReactElement {
     const content = match(props)
         .with(
             {
@@ -111,13 +114,14 @@ export function OwidGdoc({
     return (
         <AttachmentsContext.Provider
             value={{
+                linkedAuthors: get(props, "linkedAuthors", []),
                 linkedDocuments: get(props, "linkedDocuments", {}),
                 imageMetadata: get(props, "imageMetadata", {}),
                 linkedCharts: get(props, "linkedCharts", {}),
                 linkedIndicators: get(props, "linkedIndicators", {}),
                 relatedCharts: get(props, "relatedCharts", []),
                 latestDataInsights: get(props, "latestDataInsights", []),
-                homepageMetadata: get(props, "homepageMetadata", []),
+                homepageMetadata: get(props, "homepageMetadata", {}),
                 latestWorkLinks: get(props, "latestWorkLinks", []),
             }}
         >

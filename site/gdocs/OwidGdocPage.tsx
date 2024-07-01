@@ -14,7 +14,7 @@ import {
 import { getCanonicalUrl, getPageTitle } from "@ourworldindata/components"
 import { DebugProvider } from "./DebugContext.js"
 import { match, P } from "ts-pattern"
-import { IMAGES_DIRECTORY } from "@ourworldindata/types"
+import { EnrichedBlockText, IMAGES_DIRECTORY } from "@ourworldindata/types"
 import { DATA_INSIGHT_ATOM_FEED_PROPS } from "./utils.js"
 
 declare global {
@@ -40,9 +40,14 @@ function getPageDesc(gdoc: OwidGdocUnionType): string | undefined {
                 return match.content.excerpt
             }
         )
-        .with({ content: { type: OwidGdocType.DataInsight } }, () => {
-            // TODO: what do we put here?
-            return undefined
+        .with({ content: { type: OwidGdocType.DataInsight } }, (match) => {
+            const firstParagraph = match.content.body.find(
+                (block) => block.type === "text"
+            ) as EnrichedBlockText | undefined
+            // different platforms truncate at different lengths, let's leave it up to them
+            return firstParagraph
+                ? spansToUnformattedPlainText(firstParagraph.value)
+                : undefined
         })
         .with({ content: { type: OwidGdocType.Homepage } }, () => {
             return "Research and data to make progress against the world’s largest problems"
@@ -81,6 +86,7 @@ export default function OwidGdocPage({
     const canonicalUrl = getCanonicalUrl(baseUrl, gdoc)
     const pageTitle = getPageTitle(gdoc)
     const isDataInsight = gdoc.content.type === OwidGdocType.DataInsight
+    const isAuthor = gdoc.content.type === OwidGdocType.Author
 
     return (
         <html>
@@ -97,12 +103,14 @@ export default function OwidGdocPage({
                 atom={isDataInsight ? DATA_INSIGHT_ATOM_FEED_PROPS : undefined}
                 baseUrl={baseUrl}
             >
-                <CitationMeta
-                    title={content.title || ""}
-                    authors={content.authors}
-                    date={updatedAt || createdAt}
-                    canonicalUrl={canonicalUrl}
-                />
+                {!isAuthor && !isDataInsight && (
+                    <CitationMeta
+                        title={content.title || ""}
+                        authors={content.authors}
+                        date={updatedAt || createdAt}
+                        canonicalUrl={canonicalUrl}
+                    />
+                )}
 
                 <script
                     dangerouslySetInnerHTML={{

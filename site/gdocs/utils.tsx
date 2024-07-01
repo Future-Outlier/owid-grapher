@@ -10,6 +10,7 @@ import {
     OwidGdocMinimalPostInterface,
     OwidGdocType,
     LinkedIndicator,
+    DbEnrichedAuthor,
 } from "@ourworldindata/types"
 import { formatAuthors, Url } from "@ourworldindata/utils"
 import { match } from "ts-pattern"
@@ -44,6 +45,13 @@ export const breadcrumbColorForCoverColor = (
     }
 }
 
+export const useLinkedAuthor = (name: string): DbEnrichedAuthor => {
+    const { linkedAuthors } = useContext(AttachmentsContext)
+    const author = linkedAuthors?.find((author) => author.title === name)
+    if (!author) return { title: name, slug: null }
+    return author
+}
+
 export const useLinkedDocument = (
     url: string
 ): { linkedDocument?: OwidGdocMinimalPostInterface; errorMessage?: string } => {
@@ -69,6 +77,8 @@ export const useLinkedDocument = (
     } else if (!linkedDocument.published) {
         errorMessage = `Article with slug "${linkedDocument.slug}" isn't published.`
     }
+
+    //todo replace with getCanonicalUrl
     const subdirectory =
         linkedDocument.type === OwidGdocType.DataInsight ? "data-insights/" : ""
     return {
@@ -131,7 +141,7 @@ export const useImage = (
     return metadata
 }
 
-const LinkedA = ({ span }: { span: SpanLink }): JSX.Element => {
+const LinkedA = ({ span }: { span: SpanLink }): React.ReactElement => {
     const linkType = getLinkType(span.url)
     const { linkedDocument } = useLinkedDocument(span.url)
     const { linkedChart } = useLinkedChart(span.url)
@@ -167,10 +177,10 @@ const LinkedA = ({ span }: { span: SpanLink }): JSX.Element => {
 export function renderSpan(
     span: Span,
     key: React.Key | null | undefined = undefined
-): JSX.Element {
+): React.ReactElement {
     return match(span)
         .with({ spanType: "span-simple-text" }, (span) => (
-            <React.Fragment key={key}>{span.text}</React.Fragment>
+            <span key={key}>{span.text}</span>
         ))
         .with({ spanType: "span-link" }, (span) => (
             <LinkedA span={span} key={key} />
@@ -207,14 +217,12 @@ export function renderSpan(
             <q key={key}>{renderSpans(span.children)}</q>
         ))
         .with({ spanType: "span-fallback" }, (span) => (
-            <React.Fragment key={key}>
-                {renderSpans(span.children)}
-            </React.Fragment>
+            <span key={key}>{renderSpans(span.children)}</span>
         ))
         .exhaustive()
 }
 
-export function renderSpans(spans: Span[]): JSX.Element[] {
+export function renderSpans(spans: Span[]): React.ReactElement[] {
     return spans.map(renderSpan)
 }
 

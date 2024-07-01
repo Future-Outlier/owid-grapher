@@ -71,18 +71,20 @@ export interface PlacedItem extends Item {
 
 export interface EntityWithSize {
     entityName: string
+    shortEntityName?: string
     xValue: number
     ySortValue: number | undefined
 }
 export interface LabelCandidate {
     item: EntityWithSize
+    label: string
     bounds: Bounds
     isPicked: boolean
     isSelected: boolean
 }
 
 export interface LabelWithPlacement {
-    label: JSX.Element
+    label: React.ReactElement
     preferredPlacement: number
     correctedPlacement: number
     labelKey: string
@@ -90,7 +92,7 @@ export interface LabelWithPlacement {
 
 export interface LabelCandidateWithElement {
     candidate: LabelCandidate
-    labelElement: JSX.Element
+    labelElement: React.ReactElement
 }
 export interface MarimekkoBarProps {
     bar: BarOrPlaceholder

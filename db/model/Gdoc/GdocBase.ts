@@ -5,17 +5,14 @@ import {
     LinkedIndicator,
     keyBy,
     ImageMetadata,
-    excludeUndefined,
     OwidGdocErrorMessage,
     OwidGdocErrorMessageType,
     excludeNullish,
-    traverseEnrichedBlocks,
+    traverseEnrichedBlock,
     OwidEnrichedGdocBlock,
     Span,
-    EnrichedBlockResearchAndWritingLink,
     traverseEnrichedSpan,
     uniq,
-    identity,
     OwidGdocBaseInterface,
     OwidGdocPublicationContext,
     BreadcrumbItem,
@@ -33,7 +30,6 @@ import { BAKED_GRAPHER_URL } from "../../../settings/serverSettings.js"
 import { google } from "googleapis"
 import { gdocToArchie } from "./gdocToArchie.js"
 import { archieToEnriched } from "./archieToEnriched.js"
-import { imageStore } from "../Image.js"
 import { getChartConfigById, mapSlugsToIds } from "../Chart.js"
 import {
     BAKED_BASE_URL,
@@ -42,6 +38,7 @@ import {
 import { EXPLORERS_ROUTE_FOLDER } from "../../../explorer/ExplorerConstants.js"
 import { match, P } from "ts-pattern"
 import {
+    extractFilenamesFromBlock,
     extractUrl,
     getAllLinksFromResearchAndWritingBlock,
     spansToSimpleString,
@@ -53,7 +50,13 @@ import {
     getVariableOfDatapageIfApplicable,
 } from "../Variable.js"
 import { createLinkFromUrl } from "../Link.js"
-import { OwidGdoc, OwidGdocContent, OwidGdocType } from "@ourworldindata/types"
+import {
+    OwidGdoc,
+    OwidGdocContent,
+    OwidGdocType,
+    DbRawAuthor,
+    DbEnrichedAuthor,
+} from "@ourworldindata/types"
 import { KnexReadonlyTransaction } from "../../db"
 
 export class GdocBase implements OwidGdocBaseInterface {
@@ -72,29 +75,43 @@ export class GdocBase implements OwidGdocBaseInterface {
     tags: DbPlainTag[] | null = null
     errors: OwidGdocErrorMessage[] = []
     imageMetadata: Record<string, ImageMetadata> = {}
+    linkedAuthors: DbEnrichedAuthor[] = []
     linkedCharts: Record<string, LinkedChart> = {}
     linkedIndicators: Record<number, LinkedIndicator> = {}
     linkedDocuments: Record<string, OwidGdocMinimalPostInterface> = {}
     latestDataInsights: MinimalDataInsightInterface[] = []
-
-    _getSubclassEnrichedBlocks: (gdoc: typeof this) => OwidEnrichedGdocBlock[] =
-        () => []
-    _enrichSubclassContent: (content: Record<string, any>) => void = identity
-    _validateSubclass: (
-        knex: db.KnexReadonlyTransaction,
-        gdoc: typeof this
-    ) => Promise<OwidGdocErrorMessage[]> = async () => []
     _omittableFields: string[] = []
-
-    // TODO: this transaction is only RW because somewhere inside it we fetch images
-    _loadSubclassAttachments: (
-        knex: db.KnexReadWriteTransaction
-    ) => Promise<void> = async () => undefined
 
     constructor(id?: string) {
         if (id) {
             this.id = id
         }
+    }
+
+    /******************************************************************
+     * !! Use methods instead of functions as enumerable properties   *
+     * (see GdocAuthor.ts for rationale)                              *
+     ******************************************************************/
+
+    _getSubclassEnrichedBlocks(_gdoc: typeof this): OwidEnrichedGdocBlock[] {
+        return []
+    }
+
+    _enrichSubclassContent(_content: Record<string, any>): void {
+        return
+    }
+
+    async _validateSubclass(
+        _knex: db.KnexReadonlyTransaction,
+        _gdoc: typeof this
+    ): Promise<OwidGdocErrorMessage[]> {
+        return []
+    }
+
+    async _loadSubclassAttachments(
+        _knex: db.KnexReadonlyTransaction
+    ): Promise<void> {
+        return
     }
 
     protected typeSpecificFilenames(): string[] {
@@ -137,44 +154,10 @@ export class GdocBase implements OwidGdocBaseInterface {
 
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             enrichedBlockSource.forEach((block) =>
-                traverseEnrichedBlocks(block, (item) => {
-                    if ("type" in item) {
-                        if ("filename" in item && item.filename) {
-                            filenames.add(item.filename)
-                        }
-                        if (item.type === "image" && item.smallFilename) {
-                            filenames.add(item.smallFilename)
-                        }
-                        if (item.type === "prominent-link" && item.thumbnail) {
-                            filenames.add(item.thumbnail)
-                        }
-                        if (item.type === "research-and-writing") {
-                            const allLinks =
-                                getAllLinksFromResearchAndWritingBlock(item)
-                            allLinks.forEach(
-                                (link: EnrichedBlockResearchAndWritingLink) => {
-                                    if (link.value.filename) {
-                                        filenames.add(link.value.filename)
-                                    }
-                                }
-                            )
-                        }
-                        if (item.type === "key-insights") {
-                            item.insights.forEach((insight) => {
-                                if (insight.filename) {
-                                    filenames.add(insight.filename)
-                                }
-                            })
-                        }
-                        if (item.type === "homepage-intro") {
-                            item.featuredWork.forEach((featuredWork) => {
-                                if (featuredWork.filename) {
-                                    filenames.add(featuredWork.filename)
-                                }
-                            })
-                        }
+                traverseEnrichedBlock(block, (block) => {
+                    for (const filename of extractFilenamesFromBlock(block)) {
+                        filenames.add(filename)
                     }
-                    return item
                 })
             )
         }
@@ -187,7 +170,7 @@ export class GdocBase implements OwidGdocBaseInterface {
 
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             enrichedBlockSource.forEach((block) =>
-                traverseEnrichedBlocks(
+                traverseEnrichedBlock(
                     block,
                     (x) => x,
                     (span) => {
@@ -200,6 +183,13 @@ export class GdocBase implements OwidGdocBaseInterface {
         }
 
         return [...details]
+    }
+
+    async loadLinkedAuthors(knex: db.KnexReadonlyTransaction): Promise<void> {
+        this.linkedAuthors = await getMinimalAuthorsByNames(
+            knex,
+            this.content.authors
+        )
     }
 
     get links(): DbInsertPostGdocLink[] {
@@ -220,7 +210,7 @@ export class GdocBase implements OwidGdocBaseInterface {
 
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             enrichedBlockSource.forEach((block) =>
-                traverseEnrichedBlocks(
+                traverseEnrichedBlock(
                     block,
                     (block) => {
                         const extractedLinks = this.extractLinksFromBlock(block)
@@ -261,7 +251,7 @@ export class GdocBase implements OwidGdocBaseInterface {
         const slugs = new Set<string>()
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             for (const block of enrichedBlockSource) {
-                traverseEnrichedBlocks(block, (block) => {
+                traverseEnrichedBlock(block, (block) => {
                     if (block.type === "key-indicator") {
                         slugs.add(urlToSlug(block.datapageUrl))
                     }
@@ -295,7 +285,7 @@ export class GdocBase implements OwidGdocBaseInterface {
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             for (const block of enrichedBlockSource) {
                 if (hasAllChartsBlock) break
-                traverseEnrichedBlocks(block, (block) => {
+                traverseEnrichedBlock(block, (block) => {
                     if (block.type === "all-charts") {
                         hasAllChartsBlock = true
                     }
@@ -438,7 +428,7 @@ export class GdocBase implements OwidGdocBaseInterface {
             .with({ type: "key-insights" }, (block) => {
                 const links: DbInsertPostGdocLink[] = []
 
-                // insights content is traversed by traverseEnrichedBlocks
+                // insights content is traversed by traverseEnrichedBlock
                 block.insights.forEach((insight) => {
                     if (insight.url) {
                         const insightLink = createLinkFromUrl({
@@ -535,7 +525,7 @@ export class GdocBase implements OwidGdocBaseInterface {
             .with(
                 {
                     // no urls directly on any of these blocks
-                    // their children may contain urls, but they'll be addressed by traverseEnrichedBlocks
+                    // their children may contain urls, but they'll be addressed by traverseEnrichedBlock
                     type: P.union(
                         "additional-charts",
                         "align",
@@ -596,29 +586,27 @@ export class GdocBase implements OwidGdocBaseInterface {
         const slugToIdMap = await mapSlugsToIds(knex)
         // TODO: rewrite this as a single query instead of N queries
         const linkedGrapherCharts = await Promise.all(
-            [...this.linkedChartSlugs.grapher.values()].map(
-                async (originalSlug) => {
-                    const chartId = slugToIdMap[originalSlug]
-                    if (!chartId) return
-                    const chart = await getChartConfigById(knex, chartId)
-                    if (!chart) return
-                    const resolvedSlug = chart.config.slug ?? ""
-                    const resolvedTitle = chart.config.title ?? ""
-                    const tab = chart.config.tab ?? GrapherTabOption.chart
-                    const datapageIndicator =
-                        await getVariableOfDatapageIfApplicable(chart.config)
-                    const linkedChart: LinkedChart = {
-                        originalSlug,
-                        title: resolvedTitle,
-                        tab,
-                        resolvedUrl: `${BAKED_GRAPHER_URL}/${resolvedSlug}`,
-                        thumbnail: `${BAKED_GRAPHER_EXPORTS_BASE_URL}/${resolvedSlug}.svg`,
-                        tags: [],
-                        indicatorId: datapageIndicator?.id,
-                    }
-                    return linkedChart
+            this.linkedChartSlugs.grapher.map(async (originalSlug) => {
+                const chartId = slugToIdMap[originalSlug]
+                if (!chartId) return
+                const chart = await getChartConfigById(knex, chartId)
+                if (!chart) return
+                const resolvedSlug = chart.config.slug ?? ""
+                const resolvedTitle = chart.config.title ?? ""
+                const tab = chart.config.tab ?? GrapherTabOption.chart
+                const datapageIndicator =
+                    await getVariableOfDatapageIfApplicable(chart.config)
+                const linkedChart: LinkedChart = {
+                    originalSlug,
+                    title: resolvedTitle,
+                    tab,
+                    resolvedUrl: `${BAKED_GRAPHER_URL}/${resolvedSlug}`,
+                    thumbnail: `${BAKED_GRAPHER_EXPORTS_BASE_URL}/${resolvedSlug}.svg`,
+                    tags: [],
+                    indicatorId: datapageIndicator?.id,
                 }
-            )
+                return linkedChart
+            })
         ).then(excludeNullish)
 
         const publishedExplorersBySlug =
@@ -675,26 +663,25 @@ export class GdocBase implements OwidGdocBaseInterface {
         this.linkedDocuments = keyBy(linkedDocuments, "id")
     }
 
-    // TODO: this transaction is only RW because somewhere inside it we fetch images
-    async loadImageMetadata(
-        knex: db.KnexReadWriteTransaction,
+    /**
+     * Load image metadata from the database. Does not check Google Drive or sync to S3
+     */
+    async loadImageMetadataFromDB(
+        knex: db.KnexReadonlyTransaction,
         filenames?: string[]
     ): Promise<void> {
         const imagesFilenames = filenames ?? this.linkedImageFilenames
 
         if (!imagesFilenames.length) return
 
-        await imageStore.fetchImageMetadata(imagesFilenames)
-        const images = await imageStore
-            .syncImagesToS3(knex)
-            .then(excludeUndefined)
+        const imageMetadata = await db.getImageMetadataByFilenames(
+            knex,
+            imagesFilenames
+        )
 
-        // Merge the new image metadata with the existing image metadata. This
-        // is used by GdocAuthor to load additional image metadata from the
-        // latest work section.
         this.imageMetadata = {
             ...this.imageMetadata,
-            ...keyBy(images, "filename"),
+            ...keyBy(imageMetadata, "filename"),
         }
     }
 
@@ -720,6 +707,20 @@ export class GdocBase implements OwidGdocBaseInterface {
     }
 
     async validate(knex: db.KnexReadonlyTransaction): Promise<void> {
+        const authorErrors = this.content.authors.reduce(
+            (errors: OwidGdocErrorMessage[], name): OwidGdocErrorMessage[] => {
+                if (!this.linkedAuthors.find((a) => a.title === name)) {
+                    errors.push({
+                        property: "linkedAuthors",
+                        message: `Author "${name}" does not exist or is not published`,
+                        type: OwidGdocErrorMessageType.Warning,
+                    })
+                }
+                return errors
+            },
+            []
+        )
+
         const filenameErrors: OwidGdocErrorMessage[] = this.filenames.reduce(
             (
                 errors: OwidGdocErrorMessage[],
@@ -735,7 +736,7 @@ export class GdocBase implements OwidGdocBaseInterface {
                     errors.push({
                         property: "imageMetadata",
                         message: `${filename} is missing a default alt text`,
-                        type: OwidGdocErrorMessageType.Error,
+                        type: OwidGdocErrorMessageType.Warning,
                     })
                 }
                 return errors
@@ -793,7 +794,7 @@ export class GdocBase implements OwidGdocBaseInterface {
         const contentErrors: OwidGdocErrorMessage[] = []
         for (const enrichedBlockSource of this.enrichedBlockSources) {
             enrichedBlockSource.forEach((block) =>
-                traverseEnrichedBlocks(block, (block) => {
+                traverseEnrichedBlock(block, (block) => {
                     if (block.type === "key-indicator" && block.datapageUrl) {
                         const slug = urlToSlug(block.datapageUrl)
                         const linkedChart = this.linkedCharts?.[slug]
@@ -811,6 +812,7 @@ export class GdocBase implements OwidGdocBaseInterface {
 
         const subclassErrors = await this._validateSubclass(knex, this)
         this.errors = [
+            ...authorErrors,
             ...filenameErrors,
             ...linkErrors,
             ...contentErrors,
@@ -818,10 +820,10 @@ export class GdocBase implements OwidGdocBaseInterface {
         ]
     }
 
-    // TODO: this transaction is only RW because somewhere inside it we fetch images
-    async loadState(knex: db.KnexReadWriteTransaction): Promise<void> {
+    async loadState(knex: db.KnexReadonlyTransaction): Promise<void> {
+        await this.loadLinkedAuthors(knex)
         await this.loadLinkedDocuments(knex)
-        await this.loadImageMetadata(knex)
+        await this.loadImageMetadataFromDB(knex)
         await this.loadLinkedCharts(knex)
         await this.loadLinkedIndicators() // depends on linked charts
         await this._loadSubclassAttachments(knex)
@@ -838,6 +840,7 @@ export class GdocBase implements OwidGdocBaseInterface {
             "_enrichSubclassContent",
             "_filenameProperties",
             "_getSubclassEnrichedBlocks",
+            "_loadSubclassAttachments",
             "_omittableFields",
             "_validateSubclass",
             ...this._omittableFields,
@@ -874,7 +877,7 @@ export async function getMinimalGdocPostsByIds(
                 published,
                 content ->> '$.subtitle' as subtitle,
                 content ->> '$.excerpt' as excerpt,
-                content ->> '$.type' as type,
+                type,
                 content ->> '$."featured-image"' as "featured-image"
             FROM posts_gdocs
             WHERE id in (:ids)`,
@@ -894,4 +897,24 @@ export async function getMinimalGdocPostsByIds(
             "featured-image": row["featured-image"],
         } satisfies OwidGdocMinimalPostInterface
     })
+}
+
+export async function getMinimalAuthorsByNames(
+    knex: KnexReadonlyTransaction,
+    names: string[]
+): Promise<DbRawAuthor[]> {
+    if (names.length === 0) return []
+    const rows = await db.knexRaw<DbRawAuthor>(
+        knex,
+        `-- sql
+            SELECT
+                slug,
+                content ->> '$.title' as title
+            FROM posts_gdocs
+            WHERE type = 'author'
+            AND content->>"$.title" in (:names)
+            AND published = 1`,
+        { names }
+    )
+    return rows
 }

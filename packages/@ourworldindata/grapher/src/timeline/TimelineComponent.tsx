@@ -1,20 +1,22 @@
 import React from "react"
 import { select } from "d3-selection"
+import cx from "classnames"
 import {
     getRelativeMouse,
     isMobile,
     debounce,
     Bounds,
-    timeFromTimebounds,
     DEFAULT_BOUNDS,
 } from "@ourworldindata/utils"
 import { observable, computed, action } from "mobx"
 import { observer } from "mobx-react"
 import { faPlay, faPause } from "@fortawesome/free-solid-svg-icons"
-import classNames from "classnames"
 import { TimelineController, TimelineManager } from "./TimelineController"
 import { ActionButton } from "../controls/ActionButtons"
-import { DEFAULT_GRAPHER_FRAME_PADDING } from "../core/GrapherConstants.js"
+import {
+    DEFAULT_GRAPHER_FRAME_PADDING,
+    GRAPHER_TIMELINE_CLASS,
+} from "../core/GrapherConstants.js"
 
 export const TIMELINE_HEIGHT = 32 // keep in sync with $timelineHeight in TimelineComponent.scss
 
@@ -253,7 +255,9 @@ export class TimelineComponent extends React.Component<{
             : time.toString()
     }
 
-    private timelineEdgeMarker(markerType: "start" | "end"): JSX.Element {
+    private timelineEdgeMarker(
+        markerType: "start" | "end"
+    ): React.ReactElement {
         const { controller } = this
         const time =
             markerType === "start" ? controller.minTime : controller.maxTime
@@ -312,28 +316,28 @@ export class TimelineComponent extends React.Component<{
         return time
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { manager, controller } = this
-        const { startTimeProgress, endTimeProgress, minTime, maxTime } =
-            controller
-        const { startHandleTimeBound, endHandleTimeBound } = manager
+        const {
+            startTimeProgress,
+            endTimeProgress,
+            minTime,
+            maxTime,
+            startTime,
+            endTime,
+        } = controller
 
         const formattedMinTime = this.formatTime(minTime)
         const formattedMaxTime = this.formatTime(maxTime)
-        const formattedStartTime = this.formatTime(
-            timeFromTimebounds(startHandleTimeBound, minTime, maxTime)
-        )
-        const formattedEndTime = this.formatTime(
-            timeFromTimebounds(endHandleTimeBound, minTime, maxTime)
-        )
+        const formattedStartTime = this.formatTime(startTime)
+        const formattedEndTime = this.formatTime(endTime)
 
         return (
             <div
                 ref={this.base}
-                className={
-                    "TimelineComponent" +
-                    (this.mouseHoveringOverTimeline ? " hover" : "")
-                }
+                className={cx(GRAPHER_TIMELINE_CLASS, {
+                    hover: this.mouseHoveringOverTimeline,
+                })}
                 style={{
                     padding: `0 ${this.framePaddingHorizontal}px`,
                 }}
@@ -454,12 +458,12 @@ const TimelineHandle = ({
     onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>
     onFocus?: React.FocusEventHandler<HTMLDivElement>
     onBlur?: React.FocusEventHandler<HTMLDivElement>
-}): JSX.Element => {
+}): React.ReactElement => {
     return (
         // @ts-expect-error aria-value* fields expect a number, but if we're dealing with daily data,
         // the numeric representation of a date is meaningless, so we pass the formatted date string instead.
         <div
-            className={classNames("handle", type)}
+            className={cx("handle", type)}
             style={{
                 left: `${offsetPercent}%`,
             }}

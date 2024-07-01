@@ -2,18 +2,21 @@
 Common utlities for deriving properties from image metadata.
 */
 
-import { traverseEnrichedBlocks } from "./Util.js"
+import { traverseEnrichedBlock } from "./Util.js"
 import { OwidGdoc, OwidGdocType, ImageMetadata } from "@ourworldindata/types"
 import { match, P } from "ts-pattern"
+
+export const THUMBNAIL_WIDTH = 100
+export const LARGE_THUMBNAIL_WIDTH = 350
 
 export function getSizes(
     originalWidth: ImageMetadata["originalWidth"]
 ): number[] {
     if (!originalWidth) return []
     // ensure a thumbnail is generated
-    const widths = [100]
+    const widths = [THUMBNAIL_WIDTH]
     // start at 350 and go up by 500 to a max of 1350 before we just show the original image
-    let width = 350
+    let width = LARGE_THUMBNAIL_WIDTH
     while (width < originalWidth && width <= 1350) {
         widths.push(width)
         width += 500
@@ -45,11 +48,21 @@ export function getFilenameWithoutExtension(
 export function getFilenameExtension(
     filename: ImageMetadata["filename"]
 ): string {
-    return filename.slice(filename.indexOf(".") + 1)
+    return filename.slice(filename.lastIndexOf(".") + 1)
 }
 
 export function getFilenameAsPng(filename: ImageMetadata["filename"]): string {
     return `${getFilenameWithoutExtension(filename)}.png`
+}
+
+export function getFilenameAsThumbnail(
+    filename: ImageMetadata["filename"]
+): string {
+    return `${getFilenameWithoutExtension(filename)}_${LARGE_THUMBNAIL_WIDTH}.png`
+}
+
+export function getThumbnailPath(filename: string): string {
+    return `/images/published/${getFilenameAsThumbnail(filename)}`
 }
 
 export function getFilenameMIMEType(filename: string): string | undefined {
@@ -123,7 +136,7 @@ export function getFeaturedImageFilename(gdoc: OwidGdoc): string | undefined {
             // Use the first image in the document as the featured image
             let filename: string | undefined = undefined
             for (const block of gdoc.content.body) {
-                traverseEnrichedBlocks(block, (block) => {
+                traverseEnrichedBlock(block, (block) => {
                     if (!filename && block.type === "image") {
                         filename = block.smallFilename || block.filename
                     }

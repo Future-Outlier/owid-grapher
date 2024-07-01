@@ -8,7 +8,6 @@ import {
     faSkullCrossbones,
     faPen,
     faDatabase,
-    faGlobe,
     faTag,
     faUser,
     faArrowRight,
@@ -19,11 +18,12 @@ import {
     faCodeBranch,
     faDownload,
     faHatWizard,
+    faSitemap,
 } from "@fortawesome/free-solid-svg-icons"
 
 import { ETL_WIZARD_URL } from "../settings/clientSettings.js"
 
-export const AdminSidebar = (): JSX.Element => (
+export const AdminSidebar = (): React.ReactElement => (
     <aside className="AdminSidebar">
         <ul className="sidebar-menu">
             <li className="header">SITE</li>
@@ -86,13 +86,13 @@ export const AdminSidebar = (): JSX.Element => (
                 </Link>
             </li>
             <li>
-                <Link to="/standardize">
-                    <FontAwesomeIcon icon={faGlobe} /> Country tool
+                <Link to="/tags">
+                    <FontAwesomeIcon icon={faTag} /> Tags
                 </Link>
             </li>
             <li>
-                <Link to="/tags">
-                    <FontAwesomeIcon icon={faTag} /> Tags
+                <Link to="/tag-graph">
+                    <FontAwesomeIcon icon={faSitemap} /> Tag Graph
                 </Link>
             </li>
             <li>
@@ -114,7 +114,12 @@ export const AdminSidebar = (): JSX.Element => (
             </li>
             <li>
                 <Link to="/redirects">
-                    <FontAwesomeIcon icon={faArrowRight} /> Redirects
+                    <FontAwesomeIcon icon={faArrowRight} /> Chart Redirects
+                </Link>
+            </li>
+            <li>
+                <Link to="/site-redirects">
+                    <FontAwesomeIcon icon={faArrowRight} /> Site Redirects
                 </Link>
             </li>
             <li>

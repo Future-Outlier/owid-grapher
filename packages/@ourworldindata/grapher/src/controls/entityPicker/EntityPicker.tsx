@@ -75,6 +75,8 @@ export class EntityPicker extends React.Component<{
 
     @observable private blockOptionHover = false
 
+    @observable private mostRecentlySelectedEntityName: string | null = null
+
     @observable
     private scrollContainerRef: React.RefObject<HTMLDivElement> =
         React.createRef()
@@ -92,12 +94,15 @@ export class EntityPicker extends React.Component<{
         checked?: boolean
     ): void {
         this.manager.selection.toggleSelection(name)
+
         // Clear search input
         this.searchInput = ""
         this.manager.analytics?.logEntityPickerEvent(
             checked ? "select" : "deselect",
             name
         )
+
+        this.mostRecentlySelectedEntityName = name
     }
 
     @computed private get manager(): EntityPickerManager {
@@ -386,7 +391,7 @@ export class EntityPicker extends React.Component<{
         this.focusSearch()
     }
 
-    @bind private highlightLabel(label: string): string | JSX.Element {
+    @bind private highlightLabel(label: string): string | React.ReactElement {
         if (!this.searchInput) return label
 
         const result = this.fuzzy.single(this.searchInput, label)
@@ -480,7 +485,7 @@ export class EntityPicker extends React.Component<{
         )
     }
 
-    private get pickerMenu(): JSX.Element | null {
+    private get pickerMenu(): React.ReactElement | null {
         if (this.isDropdownMenu) return null
         return (
             <div className="MetricSettings">
@@ -535,7 +540,7 @@ export class EntityPicker extends React.Component<{
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { selection } = this
         const { entityType } = this.manager
         const entities = this.searchResults
@@ -623,6 +628,13 @@ export class EntityPicker extends React.Component<{
                                                     ? this.focusRef
                                                     : undefined
                                             }
+                                            className={
+                                                this
+                                                    .mostRecentlySelectedEntityName ===
+                                                option.entityName
+                                                    ? "most-recently-selected"
+                                                    : undefined
+                                            }
                                         />
                                     ))}
                                 </Flipper>
@@ -650,7 +662,7 @@ export class EntityPicker extends React.Component<{
 
 interface PickerOptionProps {
     optionWithMetricValue: EntityOptionWithMetricValue
-    highlight: (label: string) => JSX.Element | string
+    highlight: (label: string) => React.ReactElement | string
     onChange: (name: string, checked: boolean) => void
     onHover?: () => void
     innerRef?: React.RefObject<HTMLLabelElement>
@@ -658,6 +670,7 @@ interface PickerOptionProps {
     isSelected?: boolean
     barScale?: ScaleLinear<number, number>
     hasDataForActiveMetric: boolean
+    className?: string
 }
 
 class PickerOption extends React.Component<PickerOptionProps> {
@@ -670,7 +683,7 @@ class PickerOption extends React.Component<PickerOptionProps> {
         )
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const {
             barScale,
             optionWithMetricValue,
@@ -679,6 +692,7 @@ class PickerOption extends React.Component<PickerOptionProps> {
             isFocused,
             hasDataForActiveMetric,
             highlight,
+            className,
         } = this.props
         const { entityName, plotValue, formattedValue } = optionWithMetricValue
         const metricValue = formattedValue === entityName ? "" : formattedValue // If the user has this entity selected, don't show the name twice.
@@ -688,6 +702,7 @@ class PickerOption extends React.Component<PickerOptionProps> {
                 <label
                     className={classnames(
                         "EntityPickerOption",
+                        className,
                         {
                             selected: isSelected,
                             focused: isFocused,

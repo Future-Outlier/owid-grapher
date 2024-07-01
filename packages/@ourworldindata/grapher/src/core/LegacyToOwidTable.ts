@@ -8,6 +8,8 @@ import {
     OwidTableSlugs,
     OwidColumnDef,
     LegacyGrapherInterface,
+    OwidVariableDimensions,
+    OwidVariableDataMetadataDimensions,
 } from "@ourworldindata/types"
 import {
     OwidTable,
@@ -21,6 +23,7 @@ import {
     getYearFromISOStringAndDayOffset,
     intersection,
     isNumber,
+    isInteger,
     makeAnnotationsSlug,
     trimObject,
     uniqBy,
@@ -33,7 +36,9 @@ import {
     ColumnSlug,
     EPOCH_DATE,
     OwidChartDimensionInterface,
+    OwidVariableType,
 } from "@ourworldindata/utils"
+import { isContinentsVariableId } from "./GrapherConstants"
 
 export const legacyToOwidTableAndDimensions = (
     json: MultipleOwidVariableDataDimensionsMap,
@@ -143,6 +148,14 @@ export const legacyToOwidTableAndDimensions = (
             values = values.map((value) =>
                 isNumber(value) ? value * conversionFactor : value
             )
+
+            // If a non-int conversion factor is applied to an integer column,
+            // we end up with a numeric column.
+            if (
+                valueColumnDef.type === ColumnTypeNames.Integer &&
+                !isInteger(conversionFactor)
+            )
+                valueColumnDef.type = ColumnTypeNames.Numeric
         }
 
         const columnStore: { [key: string]: any[] } = {
@@ -545,6 +558,37 @@ const fullJoinTables = (
     )
 }
 
+const variableTypeToColumnType = (type: OwidVariableType): ColumnTypeNames => {
+    switch (type) {
+        case "ordinal":
+            return ColumnTypeNames.Ordinal
+        case "string":
+            return ColumnTypeNames.String
+        case "int":
+            return ColumnTypeNames.Integer
+        case "float":
+            return ColumnTypeNames.Numeric
+        case "mixed":
+        default:
+            return ColumnTypeNames.NumberOrString
+    }
+}
+
+const getSortFromDimensions = (
+    dimensions: OwidVariableDimensions
+): string[] | undefined => {
+    const values = dimensions.values?.values
+    if (!values) return
+
+    const sort = values
+        .map((value) => value.name)
+        .filter((name): name is string => name !== undefined)
+
+    if (sort.length === 0) return
+
+    return sort
+}
+
 const columnDefFromOwidVariable = (
     variable: OwidVariableWithSourceAndDimension
 ): OwidColumnDef => {
@@ -571,8 +615,21 @@ const columnDefFromOwidVariable = (
     } = variable
 
     // Without this the much used var 123 appears as "Countries Continent". We could rename in Grapher but not sure the effects of that.
-    const isContinent = variable.id === 123
+    const isContinent = isContinentsVariableId(variable.id)
     const name = isContinent ? "Continent" : variable.name
+
+    // The column's type
+    const type = isContinent
+        ? ColumnTypeNames.Continent
+        : variable.type
+          ? variableTypeToColumnType(variable.type)
+          : ColumnTypeNames.NumberOrString
+
+    // Sorted values for ordinal columns
+    const sort =
+        type === ColumnTypeNames.Ordinal
+            ? getSortFromDimensions(variable.dimensions)
+            : undefined
 
     return {
         name,
@@ -604,9 +661,8 @@ const columnDefFromOwidVariable = (
         owidVariableId: variable.id,
         owidProcessingLevel: variable.processingLevel,
         owidSchemaVersion: variable.schemaVersion,
-        type: isContinent
-            ? ColumnTypeNames.Continent
-            : ColumnTypeNames.NumberOrString,
+        type,
+        sort,
     }
 }
 
@@ -683,4 +739,78 @@ const annotationsToMap = (annotations: string): Map<string, string> => {
         entityAnnotationsMap.set(key.trim(), words.join(delimiter).trim())
     })
     return entityAnnotationsMap
+}
+
+/**
+ * Loads a single variable into an OwidTable.
+ */
+export function buildVariableTable(
+    variable: OwidVariableDataMetadataDimensions
+): OwidTable {
+    const entityMeta = variable.metadata.dimensions.entities.values
+    const entityMetaById: OwidEntityKey = Object.fromEntries(
+        entityMeta.map((entity) => [entity.id.toString(), entity])
+    )
+
+    // Base column defs, present in all OwidTables
+    const baseColumnDefs: Map<ColumnSlug, CoreColumnDef> = new Map(
+        StandardOwidColumnDefs.map((def) => [def.slug, def])
+    )
+
+    const columnDefs = new Map(baseColumnDefs)
+
+    // Time column
+    const timeColumnDef = timeColumnDefFromOwidVariable(variable.metadata)
+    columnDefs.set(timeColumnDef.slug, timeColumnDef)
+
+    // Value column
+    const valueColumnDef = columnDefFromOwidVariable(variable.metadata)
+    // Because database columns can contain mixed types, we want to avoid
+    // parsing for Grapher data until we fix that.
+    valueColumnDef.skipParsing = true
+    columnDefs.set(valueColumnDef.slug, valueColumnDef)
+
+    // Column values
+
+    const times = timeColumnValuesFromOwidVariable(
+        variable.metadata,
+        variable.data
+    )
+    const entityIds = variable.data.entities ?? []
+    const entityNames = entityIds.map(
+        // if entityMetaById[id] does not exist, then we don't have entity
+        // from variable metadata in MySQL. This can happen because we take
+        // data from S3 and metadata from MySQL. After we unify it, it should
+        // no longer be a problem
+        (id) => entityMetaById[id]?.name ?? id.toString()
+    )
+    // see comment above about entityMetaById[id]
+    const entityCodes = entityIds.map((id) => entityMetaById[id]?.code)
+
+    // If there is a conversionFactor, apply it.
+    let values = variable.data.values || []
+    const conversionFactor = valueColumnDef.display?.conversionFactor
+    if (conversionFactor !== undefined) {
+        values = values.map((value) =>
+            isNumber(value) ? value * conversionFactor : value
+        )
+
+        // If a non-int conversion factor is applied to an integer column,
+        // we end up with a numeric column.
+        if (
+            valueColumnDef.type === ColumnTypeNames.Integer &&
+            !isInteger(conversionFactor)
+        )
+            valueColumnDef.type = ColumnTypeNames.Numeric
+    }
+
+    const columnStore: { [key: string]: any[] } = {
+        [OwidTableSlugs.entityId]: entityIds,
+        [OwidTableSlugs.entityCode]: entityCodes,
+        [OwidTableSlugs.entityName]: entityNames,
+        [timeColumnDef.slug]: times,
+        [valueColumnDef.slug]: values,
+    }
+
+    return new OwidTable(columnStore, Array.from(columnDefs.values()))
 }

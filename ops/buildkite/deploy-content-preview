@@ -57,17 +57,14 @@
 #  (not locally):
 #  - in ~/owid-grapher/.env, set BAKED_BASE_URL to
 #    https://[PREVIEW_BRANCH].owid.pages.dev
-#  - `rm ~/.site-baked` (see ops > templates > lxc-manager > grapher-refresh)
-#  - locate the latest Buildkite job for your staging environment and click
-#    "Rebuild". This will run the full site baking sequence with the preview URL
-#    as BAKED_BASE_URL.
+#  - `yarn buildLocalBake https://[PREVIEW_BRANCH].owid.pages.dev /home/owid/live-data/bakedSite`
 #
 #  You don't need to continuously rebake the site to test iterative changes to
 #  functions code in the preview environment. Functions are not baked, they are
 #  rather merely copied as-is to the `dist` folder to be executed on the server.
 #  When git pushing functions code, the regular staging job will automatically
 #  update them on the staging server. You then just need to run `yarn
-#  deploy-content-preview` to deploy the updated functions code to the preview
+#  deployContentPreview` to deploy the updated functions code to the preview
 #  URL.
 #
 #  ## CREATING CLOUDFLARE PAGES API TOKEN (optional)
@@ -114,6 +111,12 @@ PREVIEW_BRANCH=${PREVIEW_BRANCH:-$GIT_BRANCH}
 BAKED_BASE_URL="https://$PREVIEW_BRANCH.$PROJECT_NAME.pages.dev"
 
 deploy_site () {
+    # Do not deploy from branch "master"
+    if [ "$PREVIEW_BRANCH" = "master" ]; then
+        echo "Cannot deploy from branch 'master'"
+        exit 1
+    fi
+
     echo "--- Deploy site to $BAKED_BASE_URL from $HOST"
 
     create_dist

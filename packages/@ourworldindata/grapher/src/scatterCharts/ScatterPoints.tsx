@@ -1,4 +1,9 @@
-import { PointVector, first, last } from "@ourworldindata/utils"
+import {
+    PointVector,
+    first,
+    last,
+    makeIdForHumanConsumption,
+} from "@ourworldindata/utils"
 import { observer } from "mobx-react"
 import React from "react"
 import { MultiColorPolyline } from "./MultiColorPolyline"
@@ -17,7 +22,7 @@ export class ScatterPoint extends React.Component<{
     onMouseEnter?: (seriesName: string) => void
     onMouseLeave?: () => void
 }> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { series, isLayerMode, onMouseEnter, onMouseLeave } = this.props
         const value = first(series.points)
         if (value === undefined) return null
@@ -32,6 +37,10 @@ export class ScatterPoint extends React.Component<{
 
         return (
             <g
+                id={makeIdForHumanConsumption(
+                    "scatter-point",
+                    series.displayKey
+                )}
                 key={series.displayKey}
                 className={series.displayKey}
                 onMouseEnter={(): void => {
@@ -72,7 +81,7 @@ export class ScatterLine extends React.Component<{
     onMouseEnter?: (seriesName: string) => void
     onMouseLeave?: () => void
 }> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { series, isLayerMode, onMouseEnter, onMouseLeave } = this.props
 
         if (series.points.length === 1)
@@ -95,7 +104,14 @@ export class ScatterLine extends React.Component<{
         const opacity = 0.7
 
         return (
-            <g key={series.displayKey} className={series.displayKey}>
+            <g
+                id={makeIdForHumanConsumption(
+                    "scatter-line",
+                    series.displayKey
+                )}
+                key={series.displayKey}
+                className={series.displayKey}
+            >
                 <circle
                     cx={firstValue.position.x.toFixed(2)}
                     cy={firstValue.position.y.toFixed(2)}

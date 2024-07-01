@@ -41,6 +41,9 @@ import {
     PointVector,
     Bounds,
     DEFAULT_BOUNDS,
+    isTouchDevice,
+    round,
+    difference,
 } from "@ourworldindata/utils"
 import { observer } from "mobx-react"
 import { NoDataModal } from "../noDataModal/NoDataModal"
@@ -48,6 +51,8 @@ import {
     BASE_FONT_SIZE,
     GRAPHER_AXIS_LINE_WIDTH_DEFAULT,
     GRAPHER_AXIS_LINE_WIDTH_THICK,
+    GRAPHER_SIDE_PANEL_CLASS,
+    GRAPHER_TIMELINE_CLASS,
 } from "../core/GrapherConstants"
 import {
     OwidTable,
@@ -101,7 +106,15 @@ import {
     ScatterSizeLegend,
     ScatterSizeLegendManager,
 } from "./ScatterSizeLegend"
-import { Tooltip, TooltipState, TooltipValueRange } from "../tooltip/Tooltip"
+import { TooltipFooterIcon } from "../tooltip/TooltipProps.js"
+import {
+    Tooltip,
+    TooltipState,
+    TooltipValueRange,
+    makeTooltipToleranceNotice,
+    makeTooltipRoundingNotice,
+} from "../tooltip/Tooltip"
+import { NoDataSection } from "./NoDataSection"
 
 @observer
 export class ScatterPlotChart
@@ -122,6 +135,8 @@ export class ScatterPlotChart
     @observable tooltipState = new TooltipState<{
         series: ScatterSeries
     }>()
+
+    private hasInteractedWithChart = false
 
     private filterManuallySelectedEntities(table: OwidTable): OwidTable {
         const { includedEntities, excludedEntities } = this.manager
@@ -342,6 +357,17 @@ export class ScatterPlotChart
         return this.props.bounds ?? DEFAULT_BOUNDS
     }
 
+    @computed private get innerBounds(): Bounds {
+        return (
+            this.bounds
+                .padRight(this.sidebarWidth + 20)
+                // top padding leaves room for tick labels
+                .padTop(6)
+                // bottom padding makes sure the x-axis label doesn't overflow
+                .padBottom(2)
+        )
+    }
+
     @computed private get canAddCountry(): boolean {
         const { addCountryMode } = this.manager
         return (addCountryMode &&
@@ -385,20 +411,24 @@ export class ScatterPlotChart
     }
 
     @action.bound onLegendMouseOver(color: string): void {
+        if (isTouchDevice()) return
         this.hoverColor = color
     }
 
     @action.bound onLegendMouseLeave(): void {
+        if (isTouchDevice()) return
         this.hoverColor = undefined
     }
 
     // When the color legend is clicked, toggle selection fo all associated keys
-    @action.bound onLegendClick(): void {
-        const { hoverColor, selectionArray } = this
-        if (!this.canAddCountry || hoverColor === undefined) return
+    @action.bound onLegendClick(color: string): void {
+        const { selectionArray } = this
+        if (!this.canAddCountry) return
+
+        this.hasInteractedWithChart = true
 
         const keysToToggle = this.series
-            .filter((g) => g.color === hoverColor)
+            .filter((g) => g.color === color)
             .map((g) => g.seriesName)
         const allKeysActive =
             intersection(keysToToggle, this.selectedEntityNames).length ===
@@ -497,6 +527,7 @@ export class ScatterPlotChart
     }
 
     @action.bound private onScatterClick(): void {
+        this.hasInteractedWithChart = true
         const { target } = this.tooltipState
         if (target) this.onSelectEntity(target.series.seriesName)
     }
@@ -530,16 +561,10 @@ export class ScatterPlotChart
         )
     }
 
-    // todo: Refactor
     @computed get dualAxis(): DualAxis {
         const { horizontalAxisPart, verticalAxisPart } = this
         return new DualAxis({
-            bounds: this.bounds
-                .padRight(this.sidebarWidth + 20)
-                // top padding leaves room for tick labels
-                .padTop(6)
-                // bottom padding makes sure the x-axis label doesn't overflow
-                .padBottom(2),
+            bounds: this.innerBounds,
             horizontalAxis: horizontalAxisPart,
             verticalAxis: verticalAxisPart,
         })
@@ -650,7 +675,7 @@ export class ScatterPlotChart
             .addAll(nodes)
     }
 
-    @computed private get points(): JSX.Element {
+    @computed private get points(): React.ReactElement {
         return (
             <ScatterPointsWithLabels
                 noDataModalManager={this.manager}
@@ -698,34 +723,20 @@ export class ScatterPlotChart
     }
 
     @computed get sizeScale(): ScaleLinear<number, number> {
-        return scaleSqrt()
-            .domain(this.sizeDomain)
-            .range(
-                this.sizeColumn.isMissing
-                    ? // if the size column is missing, we want all points/lines to have the same width
-                      this.isConnected
-                        ? [
-                              SCATTER_LINE_DEFAULT_WIDTH,
-                              SCATTER_LINE_DEFAULT_WIDTH,
-                          ]
-                        : [
-                              SCATTER_POINT_DEFAULT_RADIUS,
-                              SCATTER_POINT_DEFAULT_RADIUS,
-                          ]
-                    : this.isConnected
-                      ? // Note that the scale starts at 0.
-                        // When using the scale to plot marks, we need to make sure the minimums
-                        // (e.g. `SCATTER_POINT_MIN_RADIUS`) are respected.
-                        [0, SCATTER_LINE_MAX_WIDTH]
-                      : [0, SCATTER_POINT_MAX_RADIUS]
-            )
+        return scaleSqrt().domain(this.sizeDomain).range(this.sizeRange)
     }
 
     @computed get fontScale(): ScaleLinear<number, number> {
         const defaultFontSize =
             SCATTER_LABEL_DEFAULT_FONT_SIZE_FACTOR * this.fontSize
-        const minFontSize = SCATTER_LABEL_MIN_FONT_SIZE_FACTOR * this.fontSize
-        const maxFontSize = SCATTER_LABEL_MAX_FONT_SIZE_FACTOR * this.fontSize
+        const minFactor = this.manager.isNarrow
+            ? SCATTER_LABEL_DEFAULT_FONT_SIZE_FACTOR
+            : SCATTER_LABEL_MIN_FONT_SIZE_FACTOR
+        const maxFactor = this.manager.isNarrow
+            ? SCATTER_LABEL_DEFAULT_FONT_SIZE_FACTOR
+            : SCATTER_LABEL_MAX_FONT_SIZE_FACTOR
+        const minFontSize = minFactor * this.fontSize
+        const maxFontSize = maxFactor * this.fontSize
         return scaleSqrt()
             .domain(this.sizeDomain)
             .range(
@@ -746,11 +757,59 @@ export class ScatterPlotChart
         return new ScatterSizeLegend(this)
     }
 
+    @computed
+    private get selectedEntitiesWithoutData(): string[] {
+        return difference(
+            this.selectedEntityNames,
+            this.series.map((s) => s.seriesName)
+        )
+    }
+
+    // click anywhere inside the Grapher frame to dismiss the current selection
+    @action.bound onGrapherClick(e: Event): void {
+        const target = e.target as HTMLElement
+
+        // check if the target is an interactive element or contained within one
+        const selector = `a, button, input, .${GRAPHER_TIMELINE_CLASS}, .${GRAPHER_SIDE_PANEL_CLASS}`
+        const isTargetInteractive = target.closest(selector) !== null
+
+        if (
+            this.canAddCountry &&
+            !this.hoverColor &&
+            !this.manager.isModalOpen &&
+            !isTargetInteractive &&
+            this.hasInteractedWithChart
+        ) {
+            this.selectionArray.clearSelection()
+        }
+    }
+
+    @computed private get grapherElement():
+        | HTMLElement
+        | SVGElement
+        | undefined {
+        return this.manager.base?.current ?? undefined
+    }
+
     componentDidMount(): void {
+        if (this.grapherElement) {
+            this.grapherElement.addEventListener(
+                "mousedown",
+                this.onGrapherClick
+            )
+        }
         exposeInstanceOnWindow(this)
     }
 
-    render(): JSX.Element {
+    componentWillUnmount(): void {
+        if (this.grapherElement) {
+            this.grapherElement.removeEventListener(
+                "mousedown",
+                this.onGrapherClick
+            )
+        }
+    }
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -771,13 +830,44 @@ export class ScatterPlotChart
             legendDimensions,
         } = this
 
-        let sizeLegendY = bounds.top
-        if (this.legendItems.length > 0) {
-            sizeLegendY = bounds.top + legendDimensions.height + 16
-        }
-        const arrowLegendY = sizeLegend
-            ? sizeLegendY + sizeLegend.height + 15
-            : sizeLegendY
+        const hasLegendItems = this.legendItems.length > 0
+        const verticalLegendHeight = hasLegendItems
+            ? legendDimensions.height
+            : 0
+        const sizeLegendHeight = sizeLegend?.height ?? 0
+        const arrowLegendHeight = arrowLegend?.height ?? 0
+
+        const legendPadding = 16
+        const ySizeLegend =
+            bounds.top +
+            verticalLegendHeight +
+            (verticalLegendHeight > 0 ? legendPadding : 0)
+        const yArrowLegend =
+            ySizeLegend +
+            sizeLegendHeight +
+            (sizeLegendHeight > 0 ? legendPadding : 0)
+        const yNoDataSection =
+            yArrowLegend +
+            arrowLegendHeight +
+            (arrowLegendHeight > 0 ? legendPadding : 0)
+
+        const noDataSectionBounds = new Bounds(
+            this.legendX,
+            yNoDataSection,
+            sidebarWidth,
+            bounds.height - yNoDataSection
+        )
+
+        const separatorLine = (y: number): React.ReactElement | null =>
+            y > bounds.top ? (
+                <line
+                    x1={this.legendX}
+                    y1={y - 0.5 * legendPadding}
+                    x2={bounds.right}
+                    y2={y - 0.5 * legendPadding}
+                    stroke="#e7e7e7"
+                />
+            ) : null
 
         return (
             <g className="ScatterPlot" onMouseMove={this.onScatterMouseMove}>
@@ -798,42 +888,37 @@ export class ScatterPlotChart
                             key={i}
                             dualAxis={dualAxis}
                             comparisonLine={line}
+                            baseFontSize={this.fontSize}
                         />
                     ))}
                 {this.points}
                 <VerticalColorLegend manager={this} />
                 {sizeLegend && (
                     <>
-                        {this.legendItems.length > 0 && (
-                            <line
-                                x1={bounds.right - sidebarWidth}
-                                y1={sizeLegendY - 14}
-                                x2={bounds.right - 5}
-                                y2={sizeLegendY - 14}
-                                stroke="#ccc"
-                            />
-                        )}
-                        {sizeLegend.render(this.legendX, sizeLegendY)}
+                        {separatorLine(ySizeLegend)}
+                        {sizeLegend.render(this.legendX, ySizeLegend)}
                     </>
                 )}
                 {arrowLegend && (
                     <>
-                        <line
-                            x1={bounds.right - sidebarWidth}
-                            y1={arrowLegendY - 7}
-                            x2={bounds.right - 5}
-                            y2={arrowLegendY - 7}
-                            stroke="#ccc"
-                        />
+                        {separatorLine(yArrowLegend)}
                         <g
                             className="clickable"
                             onClick={this.onToggleEndpoints}
                         >
-                            {arrowLegend.render(
-                                bounds.right - sidebarWidth,
-                                arrowLegendY
-                            )}
+                            {arrowLegend.render(this.legendX, yArrowLegend)}
                         </g>
+                    </>
+                )}
+                {this.selectedEntitiesWithoutData.length > 0 && (
+                    <>
+                        {!this.manager.isStatic &&
+                            separatorLine(noDataSectionBounds.top)}
+                        <NoDataSection
+                            entityNames={this.selectedEntitiesWithoutData}
+                            bounds={noDataSectionBounds}
+                            baseFontSize={this.fontSize}
+                        />
                     </>
                 )}
                 {this.tooltip}
@@ -841,12 +926,13 @@ export class ScatterPlotChart
         )
     }
 
-    @computed get tooltip(): JSX.Element | null {
+    @computed get tooltip(): React.ReactElement | null {
         if (!this.tooltipState.target) return null
 
         const {
             xColumn,
             yColumn,
+            sizeColumn,
             tooltipState: { target, position, fading },
         } = this
         const points = target.series.points ?? []
@@ -893,6 +979,41 @@ export class ScatterPlotChart
             timeLabel =
                 timeRange + (isRelativeMode ? " (avg. annual change)" : "")
 
+        const columns = [xColumn, yColumn, sizeColumn]
+        const allRoundedToSigFigs = columns.every(
+            (column) => column.roundsToSignificantFigures
+        )
+        const anyRoundedToSigFigs = columns.some(
+            (column) => column.roundsToSignificantFigures
+        )
+        const sigFigs = excludeUndefined(
+            columns.map((column) =>
+                column.roundsToSignificantFigures
+                    ? column.numSignificantFigures
+                    : undefined
+            )
+        )
+
+        const toleranceNotice = targetNotice
+            ? {
+                  icon: TooltipFooterIcon.notice,
+                  text: makeTooltipToleranceNotice(targetNotice),
+              }
+            : undefined
+        const roundingNotice = anyRoundedToSigFigs
+            ? {
+                  icon: allRoundedToSigFigs
+                      ? TooltipFooterIcon.none
+                      : TooltipFooterIcon.significance,
+                  text: makeTooltipRoundingNotice(sigFigs, {
+                      plural: sigFigs.length > 1,
+                  }),
+              }
+            : undefined
+        const footer = excludeUndefined([toleranceNotice, roundingNotice])
+        const superscript =
+            !!roundingNotice && roundingNotice.icon !== TooltipFooterIcon.none
+
         return (
             <Tooltip
                 id="scatterTooltip"
@@ -905,22 +1026,24 @@ export class ScatterPlotChart
                 title={target.series.label}
                 subtitle={timeLabel}
                 dissolve={fading}
-                footer={targetNotice}
-                footerFormat="notice"
+                footer={footer}
             >
                 <TooltipValueRange
                     column={xColumn}
                     values={xValues}
                     notice={xNotice}
+                    showSignificanceSuperscript={superscript}
                 />
                 <TooltipValueRange
                     column={yColumn}
                     values={yValues}
                     notice={yNotice}
+                    showSignificanceSuperscript={superscript}
                 />
                 <TooltipValueRange
-                    column={this.sizeColumn}
+                    column={sizeColumn}
                     values={excludeNullish(values.map((v) => v.size))}
+                    showSignificanceSuperscript={superscript}
                 />
             </Tooltip>
         )
@@ -968,11 +1091,17 @@ export class ScatterPlotChart
     }
 
     @computed private get yAxisConfig(): AxisConfig {
-        return new AxisConfig(this.manager.yAxisConfig, this)
+        const { yAxisConfig = {} } = this.manager
+        const labelPadding = this.manager.isNarrow ? 2 : undefined
+        const config = { ...yAxisConfig, labelPadding }
+        return new AxisConfig(config, this)
     }
 
     @computed private get xAxisConfig(): AxisConfig {
-        return new AxisConfig(this.manager.xAxisConfig, this)
+        const { xAxisConfig = {} } = this.manager
+        const labelPadding = this.manager.isNarrow ? 2 : undefined
+        const config = { ...xAxisConfig, labelPadding }
+        return new AxisConfig(config, this)
     }
 
     @computed private get yColumnSlug(): string {
@@ -1120,6 +1249,32 @@ export class ScatterPlotChart
             .get(this.sizeColumn.slug)
             .values.filter(isNumber)
         return [0, max(sizeValues) ?? 1]
+    }
+
+    @computed private get sizeRange(): [number, number] {
+        if (this.sizeColumn.isMissing) {
+            // if the size column is missing, we want all points/lines to have the same width
+            return this.isConnected
+                ? [SCATTER_LINE_DEFAULT_WIDTH, SCATTER_LINE_DEFAULT_WIDTH]
+                : [SCATTER_POINT_DEFAULT_RADIUS, SCATTER_POINT_DEFAULT_RADIUS]
+        }
+
+        const maxLineWidth = SCATTER_LINE_MAX_WIDTH
+        const maxPointRadius = Math.min(
+            SCATTER_POINT_MAX_RADIUS,
+            round(
+                Math.min(this.innerBounds.width, this.innerBounds.height) *
+                    0.06,
+                1
+            )
+        )
+
+        return this.isConnected
+            ? // Note that the scale starts at 0.
+              // When using the scale to plot marks, we need to make sure the minimums
+              // (e.g. `SCATTER_POINT_MIN_RADIUS`) are respected.
+              [0, maxLineWidth]
+            : [0, maxPointRadius]
     }
 
     @computed private get yScaleType(): ScaleType {

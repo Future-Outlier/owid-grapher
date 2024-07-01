@@ -186,6 +186,7 @@ export type RawBlockImage = {
         alt?: string
         caption?: string
         size?: BlockImageSize
+        hasOutline?: string
     }
 }
 
@@ -197,6 +198,7 @@ export type EnrichedBlockImage = {
     caption?: Span[]
     originalWidth?: number
     size: BlockImageSize
+    hasOutline: boolean
 } & EnrichedBlockWithParseErrors
 
 export type RawBlockVideo = {
@@ -844,11 +846,16 @@ export enum SocialLinkType {
     Instagram = "instagram",
     Youtube = "youtube",
     Linkedin = "linkedin",
+    Threads = "threads",
+    Mastodon = "mastodon",
+    Bluesky = "bluesky",
+    Email = "email",
+    Link = "link",
 }
 
 export type RawSocialLink = {
-    text: string
-    url: string
+    text?: string
+    url?: string
     type?: SocialLinkType
 }
 
@@ -857,7 +864,11 @@ export type RawBlockSocials = {
     value: RawSocialLink[] | ArchieMLUnexpectedNonObjectValue
 }
 
-export type EnrichedSocialLink = RawSocialLink
+export type EnrichedSocialLink = {
+    text: string
+    url: string
+    type?: SocialLinkType
+}
 
 export type EnrichedBlockSocials = {
     type: "socials"

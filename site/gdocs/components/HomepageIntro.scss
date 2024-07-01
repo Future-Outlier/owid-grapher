@@ -161,10 +161,11 @@
 }
 
 .homepage-intro__mission-wrapper {
-    padding-bottom: 24px;
     margin-bottom: 24px;
-    border-bottom: 1px solid $blue-10;
     color: $blue-60;
+    strong {
+        letter-spacing: -0.1px;
+    }
 }
 
 .homepage-intro__media-logos {
@@ -183,7 +184,10 @@
         display: block;
 
         @include sm-only {
-            height: 172px;
+            // All our new featured images are published at 1200px x 630px
+            // Older featured images aren't published at this size, so we need to
+            // crop them to the correct aspect ratio so that they're all flush
+            aspect-ratio: 1200 / 630;
             width: 298px;
             object-fit: cover;
         }

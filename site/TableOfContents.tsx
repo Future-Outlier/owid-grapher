@@ -63,11 +63,6 @@ export const TableOfContents = ({
 
     useTriggerWhenClickOutside(tocRef, isOpen, setIsOpen)
 
-    // Open the sidebar on desktop by default when mounting
-    useEffect(() => {
-        setIsOpen(window.innerWidth >= 1536)
-    }, [])
-
     useEffect(() => {
         if ("IntersectionObserver" in window) {
             const previousHeadings = headings.map((heading, i) => ({
@@ -153,6 +148,11 @@ export const TableOfContents = ({
 
     return (
         <div className={TOC_WRAPPER_CLASSNAME}>
+            <div
+                className={classNames({
+                    "entry-sidebar__overlay": isOpen,
+                })}
+            />
             <aside
                 className={classNames("entry-sidebar", {
                     "entry-sidebar--is-open": isOpen,

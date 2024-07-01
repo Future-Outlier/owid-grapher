@@ -59,9 +59,9 @@ export class SuggestedChartRevisionApproverPage extends React.Component<{
 }> {
     @observable.ref suggestedChartRevisions?: SuggestedChartRevisionSerialized[]
     @observable currentlyActiveUserId?: number
-    @observable.ref originalGrapherElement?: JSX.Element
-    @observable.ref suggestedGrapherElement?: JSX.Element
-    @observable.ref existingGrapherElement?: JSX.Element
+    @observable.ref originalGrapherElement?: React.ReactElement
+    @observable.ref suggestedGrapherElement?: React.ReactElement
+    @observable.ref existingGrapherElement?: React.ReactElement
     @observable.ref chartReferences: References | undefined = undefined
 
     // HACK: In order for the <select> dropdown to not drop any existing users after finishing all
@@ -301,7 +301,7 @@ export class SuggestedChartRevisionApproverPage extends React.Component<{
                 this.currentSuggestedChartRevision.suggestedConfig.subtitle =
                     subtitle
                 this.gptNumDisp = this.gptNum + 1
-                this.gptNum = this.gptNumDisp % suggestions?.length ?? 1
+                this.gptNum = this.gptNumDisp % suggestions?.length || 1
                 this.usingGPT = true
             }
         }

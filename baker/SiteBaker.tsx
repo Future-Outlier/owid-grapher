@@ -1,14 +1,12 @@
 import fs from "fs-extra"
 import path from "path"
 import { glob } from "glob"
-import { keyBy, without, uniq, mapValues, pick } from "lodash"
+import { keyBy, without, uniq, mapValues, pick, chunk } from "lodash"
 import ProgressBar from "progress"
-import * as wpdb from "../db/wpdb.js"
 import * as db from "../db/db.js"
 import {
     BLOG_POSTS_PER_PAGE,
     BASE_DIR,
-    WORDPRESS_DIR,
     GDOCS_DETAILS_ON_DEMAND_ID,
     BAKED_GRAPHER_URL,
 } from "../settings/serverSettings.js"
@@ -17,7 +15,6 @@ import {
     renderFrontPage,
     renderBlogByPageNum,
     renderChartsPage,
-    renderMenuJson,
     renderSearchPage,
     renderDonatePage,
     entriesByYearPage,
@@ -57,6 +54,7 @@ import {
     excludeUndefined,
     grabMetadataForGdocLinkedIndicator,
     GrapherTabOption,
+    DbEnrichedAuthor,
 } from "@ourworldindata/utils"
 
 import { execWrapper } from "../db/execWrapper.js"
@@ -100,12 +98,17 @@ import {
     getVariableMetadata,
     getVariableOfDatapageIfApplicable,
 } from "../db/model/Variable.js"
-import { getAllMinimalGdocBaseObjects } from "../db/model/Gdoc/GdocFactory.js"
+import {
+    gdocFromJSON,
+    getAllMinimalGdocBaseObjects,
+} from "../db/model/Gdoc/GdocFactory.js"
 import { getBakePath } from "@ourworldindata/components"
-import { GdocAuthor } from "../db/model/Gdoc/GdocAuthor.js"
+import { GdocAuthor, getMinimalAuthors } from "../db/model/Gdoc/GdocAuthor.js"
 import { DATA_INSIGHTS_ATOM_FEED_NAME } from "../site/gdocs/utils.js"
+import { getRedirectsFromDb } from "../db/model/Redirect.js"
 
 type PrefetchedAttachments = {
+    linkedAuthors: DbEnrichedAuthor[]
     linkedDocuments: Record<string, OwidGdocMinimalPostInterface>
     imageMetadata: Record<string, ImageMetadata>
     linkedCharts: {
@@ -162,6 +165,14 @@ function getProgressBarTotal(bakeSteps: BakeStepConfig): number {
     if (bakeSteps.has("redirects")) total++
     // Add a tick for the validation step that occurs when these two steps run
     if (bakeSteps.has("dods") && bakeSteps.has("charts")) total++
+    // Add 6 ticks for prefetching attachments, which will only run if any of these steps are enabled
+    if (
+        bakeSteps.has("gdocPosts") ||
+        bakeSteps.has("dataInsights") ||
+        bakeSteps.has("authors")
+    ) {
+        total += 7
+    }
     return total
 }
 
@@ -185,6 +196,7 @@ export class SiteBaker {
             "--- BakeAll [:bar] :current/:total :elapseds :name\n",
             {
                 total: getProgressBarTotal(bakeSteps),
+                renderThrottle: 0,
             }
         )
         this.explorerAdminServer = new ExplorerAdminServer(GIT_CMS_DIR)
@@ -295,22 +307,32 @@ export class SiteBaker {
         return without(existingSlugs, ...postSlugsFromDb)
     }
 
-    // Prefetches all linkedDocuments, imageMetadata, linkedCharts, and linkedIndicators instead of having to fetch them
-    // for each individual gdoc. Optionally takes a tuple of string arrays to pick from the prefetched
-    // dictionaries.
+    // Prefetches all linkedAuthors, linkedDocuments, imageMetadata,
+    // linkedCharts, and linkedIndicators instead of having to fetch them for
+    // each individual gdoc. Optionally takes a tuple of string arrays to pick
+    // from the prefetched dictionaries.
     _prefetchedAttachmentsCache: PrefetchedAttachments | undefined = undefined
     private async getPrefetchedGdocAttachments(
         knex: db.KnexReadonlyTransaction,
-        picks?: [string[], string[], string[], string[]]
+        picks?: [string[], string[], string[], string[], string[]]
     ): Promise<PrefetchedAttachments> {
         if (!this._prefetchedAttachmentsCache) {
+            console.log("Prefetching attachments...")
             const publishedGdocs = await getAllMinimalGdocBaseObjects(knex)
             const publishedGdocsDictionary = keyBy(publishedGdocs, "id")
+            this.progressBar.tick({
+                name: `✅ Prefetched ${publishedGdocs.length} gdocs`,
+            })
 
             const imageMetadataDictionary: Record<string, Image> =
                 await getAllImages(knex).then((images) =>
                     keyBy(images, "filename")
                 )
+
+            this.progressBar.tick({
+                name: `✅ Prefetched ${Object.values(imageMetadataDictionary).length} images`,
+            })
+
             const publishedExplorersBySlug = await this.explorerAdminServer
                 .getAllPublishedExplorersBySlugCached()
                 .then((results) =>
@@ -325,32 +347,45 @@ export class SiteBaker {
                         tags: [],
                     }))
                 )
+            this.progressBar.tick({
+                name: `✅ Prefetched ${Object.values(publishedExplorersBySlug).length} explorers`,
+            })
 
             // Includes redirects
             const publishedChartsRaw = await mapSlugsToConfigs(knex)
-            const publishedCharts: LinkedChart[] = await Promise.all(
-                publishedChartsRaw.map(async (chart) => {
-                    const tab = chart.config.tab ?? GrapherTabOption.chart
-                    const datapageIndicator =
-                        await getVariableOfDatapageIfApplicable(chart.config)
-                    return {
-                        originalSlug: chart.slug,
-                        resolvedUrl: `${BAKED_GRAPHER_URL}/${chart.config.slug}`,
-                        tab,
-                        queryString: "",
-                        title: chart.config.title || "",
-                        thumbnail: `${BAKED_GRAPHER_EXPORTS_BASE_URL}/${chart.config.slug}.svg`,
-                        indicatorId: datapageIndicator?.id,
-                        tags: [],
-                    }
-                })
-            )
+            const publishedCharts: LinkedChart[] = []
+
+            for (const publishedChartsRawChunk of chunk(
+                publishedChartsRaw,
+                20
+            )) {
+                await Promise.all(
+                    publishedChartsRawChunk.map(async (chart) => {
+                        const tab = chart.config.tab ?? GrapherTabOption.chart
+                        const datapageIndicator =
+                            await getVariableOfDatapageIfApplicable(
+                                chart.config
+                            )
+                        publishedCharts.push({
+                            originalSlug: chart.slug,
+                            resolvedUrl: `${BAKED_GRAPHER_URL}/${chart.config.slug}`,
+                            tab,
+                            title: chart.config.title || "",
+                            thumbnail: `${BAKED_GRAPHER_EXPORTS_BASE_URL}/${chart.config.slug}.svg`,
+                            indicatorId: datapageIndicator?.id,
+                            tags: [],
+                        })
+                    })
+                )
+            }
             const publishedChartsBySlug = keyBy(publishedCharts, "originalSlug")
+            this.progressBar.tick({
+                name: `✅ Prefetched ${publishedCharts.length} charts`,
+            })
 
             const publishedChartsWithIndicatorIds = publishedCharts.filter(
                 (chart) => chart.indicatorId
             )
-
             const datapageIndicators: LinkedIndicator[] = await Promise.all(
                 publishedChartsWithIndicatorIds.map(async (linkedChart) => {
                     const indicatorId = linkedChart.indicatorId as number
@@ -363,9 +398,19 @@ export class SiteBaker {
                     }
                 })
             )
+            this.progressBar.tick({
+                name: `✅ Prefetched ${datapageIndicators.length} linked indicators`,
+            })
             const datapageIndicatorsById = keyBy(datapageIndicators, "id")
 
+            const publishedAuthors = await getMinimalAuthors(knex)
+
+            this.progressBar.tick({
+                name: `✅ Prefetched ${publishedAuthors.length} authors`,
+            })
+
             const prefetchedAttachments = {
+                linkedAuthors: publishedAuthors,
                 linkedDocuments: publishedGdocsDictionary,
                 imageMetadata: imageMetadataDictionary,
                 linkedCharts: {
@@ -374,10 +419,12 @@ export class SiteBaker {
                 },
                 linkedIndicators: datapageIndicatorsById,
             }
+            this.progressBar.tick({ name: "✅ Prefetched attachments" })
             this._prefetchedAttachmentsCache = prefetchedAttachments
         }
         if (picks) {
             const [
+                authorNames,
                 linkedDocumentIds,
                 imageFilenames,
                 linkedGrapherSlugs,
@@ -425,6 +472,10 @@ export class SiteBaker {
                     this._prefetchedAttachmentsCache.linkedIndicators,
                     linkedIndicatorIds
                 ),
+                linkedAuthors:
+                    this._prefetchedAttachmentsCache.linkedAuthors.filter(
+                        (author) => authorNames.includes(author.title)
+                    ),
             }
         }
         return this._prefetchedAttachmentsCache
@@ -459,14 +510,18 @@ export class SiteBaker {
 
     private async bakePosts(knex: db.KnexReadonlyTransaction) {
         if (!this.bakeSteps.has("wordpressPosts")) return
-        // TODO: the knex instance should be handed down as a parameter
         const alreadyPublishedViaGdocsSlugsSet =
             await db.getSlugsWithPublishedGdocsSuccessors(knex)
+        const redirects = await getRedirectsFromDb(knex)
 
         const postsApi = await getPostsFromSnapshots(
             knex,
             undefined,
-            (postrow) => !alreadyPublishedViaGdocsSlugsSet.has(postrow.slug)
+            (postrow) =>
+                // Exclude posts that are already published via GDocs
+                !alreadyPublishedViaGdocsSlugsSet.has(postrow.slug) &&
+                // Exclude posts that are redirect sources
+                !redirects.some((row) => row.source.slice(1) === postrow.slug)
         )
 
         await pMap(
@@ -483,10 +538,12 @@ export class SiteBaker {
 
     // Bake all GDoc posts, or a subset of them if slugs are provided
 
-    // TODO: this transaction is only RW because somewhere inside it we fetch images
-    async bakeGDocPosts(knex: db.KnexReadWriteTransaction, slugs?: string[]) {
+    async bakeGDocPosts(knex: db.KnexReadonlyTransaction, slugs?: string[]) {
         if (!this.bakeSteps.has("gdocPosts")) return
-        const publishedGdocs = await GdocPost.getPublishedGdocPosts(knex)
+        // We don't need to call `load` on these, because we prefetch all attachments
+        const publishedGdocs = await db
+            .getPublishedGdocPostsWithTags(knex)
+            .then((gdocs) => gdocs.map(gdocFromJSON))
 
         const gdocsToBake =
             slugs !== undefined
@@ -505,11 +562,13 @@ export class SiteBaker {
 
         for (const publishedGdoc of gdocsToBake) {
             const attachments = await this.getPrefetchedGdocAttachments(knex, [
+                publishedGdoc.content.authors,
                 publishedGdoc.linkedDocumentIds,
                 publishedGdoc.linkedImageFilenames,
                 publishedGdoc.linkedChartSlugs.grapher,
                 publishedGdoc.linkedChartSlugs.explorer,
             ])
+            publishedGdoc.linkedAuthors = attachments.linkedAuthors
             publishedGdoc.linkedDocuments = attachments.linkedDocuments
             publishedGdoc.imageMetadata = attachments.imageMetadata
             publishedGdoc.linkedCharts = {
@@ -519,7 +578,9 @@ export class SiteBaker {
             publishedGdoc.linkedIndicators = attachments.linkedIndicators
 
             // this is a no-op if the gdoc doesn't have an all-chart block
-            await publishedGdoc.loadRelatedCharts(knex)
+            if ("loadRelatedCharts" in publishedGdoc) {
+                await publishedGdoc.loadRelatedCharts(knex)
+            }
 
             await publishedGdoc.validate(knex)
             if (
@@ -584,11 +645,6 @@ export class SiteBaker {
             `${this.bakedSiteDir}/404.html`,
             await renderNotFoundPage()
         )
-        await this.stageWrite(
-            `${this.bakedSiteDir}/headerMenu.json`,
-            await renderMenuJson()
-        )
-
         await this.stageWrite(
             `${this.bakedSiteDir}/sitemap.xml`,
             await makeSitemap(this.explorerAdminServer, knex)
@@ -715,11 +771,14 @@ export class SiteBaker {
 
         for (const dataInsight of publishedDataInsights) {
             const attachments = await this.getPrefetchedGdocAttachments(knex, [
+                dataInsight.content.authors,
                 dataInsight.linkedDocumentIds,
                 dataInsight.linkedImageFilenames,
                 dataInsight.linkedChartSlugs.grapher,
                 dataInsight.linkedChartSlugs.explorer,
             ])
+            // Not used just yet
+            // dataInsight.linkedAuthors = attachments.linkedAuthors
             dataInsight.linkedDocuments = attachments.linkedDocuments
             dataInsight.imageMetadata = attachments.imageMetadata
             dataInsight.linkedCharts = {
@@ -783,6 +842,7 @@ export class SiteBaker {
 
         for (const publishedAuthor of publishedAuthors) {
             const attachments = await this.getPrefetchedGdocAttachments(knex, [
+                publishedAuthor.content.authors,
                 publishedAuthor.linkedDocumentIds,
                 publishedAuthor.linkedImageFilenames,
                 publishedAuthor.linkedChartSlugs.grapher,
@@ -796,6 +856,7 @@ export class SiteBaker {
             //     ...attachments.linkedCharts.graphers,
             //     ...attachments.linkedCharts.explorers,
             // }
+            // publishedAuthor.linkedAuthors = attachments.linkedAuthors
 
             // Attach documents metadata linked to in the "featured work" section
             publishedAuthor.linkedDocuments = attachments.linkedDocuments
@@ -931,12 +992,14 @@ export class SiteBaker {
         const excludes = "--exclude images/published"
 
         await execWrapper(
-            `rsync -havL --delete ${WORDPRESS_DIR}/web/app/uploads ${this.bakedSiteDir}/ ${excludes}`
-        )
-
-        await execWrapper(
             `rm -rf ${this.bakedSiteDir}/assets && cp -r ${BASE_DIR}/dist/assets ${this.bakedSiteDir}/assets`
         )
+
+        // The `assets-admin` folder is optional; don't fail if it doesn't exist
+        await execWrapper(
+            `rm -rf ${this.bakedSiteDir}/assets-admin && (cp -r ${BASE_DIR}/dist/assets-admin ${this.bakedSiteDir}/assets-admin || true)`
+        )
+
         await this.validateTagIcons(trx)
         await execWrapper(
             `rsync -hav --delete ${BASE_DIR}/public/* ${this.bakedSiteDir}/ ${excludes}`
@@ -952,7 +1015,7 @@ export class SiteBaker {
         this.progressBar.tick({ name: "✅ baked assets" })
     }
 
-    async bakeRedirects(knex: db.KnexReadonlyTransaction) {
+    async bakeRedirects(knex: db.KnexReadWriteTransaction) {
         if (!this.bakeSteps.has("redirects")) return
         const redirects = await getRedirects(knex)
         this.progressBar.tick({ name: "✅ got redirects" })
@@ -970,7 +1033,8 @@ export class SiteBaker {
         this.progressBar.tick({ name: "✅ baked redirects" })
     }
 
-    // TODO: this transaction is only RW because somewhere inside it we fetch images
+    // TODO: This transaction is RW because we delete expired redirects and
+    //       somewhere inside it we fetch images.
     async bakeWordpressPages(knex: db.KnexReadWriteTransaction) {
         await this.bakeRedirects(knex)
         await this.bakeEmbeds(knex)
@@ -1015,6 +1079,7 @@ export class SiteBaker {
             "--- BakeAll [:bar] :current/:total :elapseds :name\n",
             {
                 total: progressBarTotal,
+                renderThrottle: 0,
             }
         )
         await this._bakeNonWordpressPages(knex)
@@ -1052,7 +1117,6 @@ export class SiteBaker {
     }
 
     async endDbConnections() {
-        await wpdb.singleton.end()
         await db.closeTypeOrmAndKnexConnections()
     }
 

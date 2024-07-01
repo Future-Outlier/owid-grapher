@@ -1,12 +1,7 @@
-import {
-    isEmpty,
-    max,
-    stripHTML,
-    Bounds,
-    FontFamily,
-} from "@ourworldindata/utils"
+import { max, stripHTML, Bounds, FontFamily } from "@ourworldindata/utils"
 import { computed } from "mobx"
 import React from "react"
+import { Fragment, joinFragments, splitIntoFragments } from "./TextWrapUtils"
 
 declare type FontSize = number
 
@@ -16,6 +11,7 @@ interface TextWrapProps {
     lineHeight?: number
     fontSize: FontSize
     fontWeight?: number
+    separators?: string[]
     rawHtml?: boolean
 }
 
@@ -81,6 +77,9 @@ export class TextWrap {
     @computed get text(): string {
         return this.props.text
     }
+    @computed get separators(): string[] {
+        return this.props.separators ?? [" "]
+    }
 
     // We need to take care that HTML tags are not split across lines.
     // Instead, we want every line to have opening and closing tags for all tags that appear.
@@ -127,26 +126,27 @@ export class TextWrap {
     }
 
     @computed get lines(): WrapLine[] {
-        const { text, maxWidth, fontSize, fontWeight } = this
+        const { text, separators, maxWidth, fontSize, fontWeight } = this
 
-        const words = isEmpty(text)
-            ? []
-            : // Prepend spaces so that the string is also split before newline characters
-              // See startsWithNewline
-              text.replace(/\n/g, " \n").split(" ")
+        // Prepend spaces so that the string is also split before newline characters
+        // See startsWithNewline
+        const fragments = splitIntoFragments(
+            text.replace(/\n/g, " \n"),
+            separators
+        )
 
         const lines: WrapLine[] = []
 
-        let line: string[] = []
+        let line: Fragment[] = []
         let lineBounds = Bounds.empty()
 
-        words.forEach((word) => {
-            const nextLine = line.concat([word])
+        fragments.forEach((fragment) => {
+            const nextLine = line.concat([fragment])
 
             // Strip HTML if a raw string is passed
             const text = this.props.rawHtml
-                ? stripHTML(nextLine.join(" "))
-                : nextLine.join(" ")
+                ? stripHTML(joinFragments(nextLine))
+                : joinFragments(nextLine)
 
             const nextBounds = Bounds.forText(text, {
                 fontSize,
@@ -154,18 +154,23 @@ export class TextWrap {
             })
 
             if (
-                startsWithNewline(word) ||
+                startsWithNewline(fragment.text) ||
                 (nextBounds.width + 10 > maxWidth && line.length >= 1)
             ) {
                 // Introduce a newline _before_ this word
                 lines.push({
-                    text: line.join(" "),
+                    text: joinFragments(line),
                     width: lineBounds.width,
                     height: lineBounds.height,
                 })
                 // ... and start a new line with this word (with a potential leading newline stripped)
-                const wordWithoutNewline = word.replace(/^\n/, "")
-                line = [wordWithoutNewline]
+                const wordWithoutNewline = fragment.text.replace(/^\n/, "")
+                line = [
+                    {
+                        text: wordWithoutNewline,
+                        separator: fragment.separator,
+                    },
+                ]
                 lineBounds = Bounds.forText(wordWithoutNewline, {
                     fontSize,
                     fontWeight,
@@ -179,7 +184,7 @@ export class TextWrap {
         // Push the last line
         if (line.length > 0)
             lines.push({
-                text: line.join(" "),
+                text: joinFragments(line),
                 width: lineBounds.width,
                 height: lineBounds.height,
             })
@@ -209,7 +214,7 @@ export class TextWrap {
         }
     }
 
-    renderHTML(): JSX.Element | null {
+    renderHTML(): React.ReactElement | null {
         const { props, lines } = this
 
         if (lines.length === 0) return null
@@ -237,14 +242,8 @@ export class TextWrap {
         )
     }
 
-    render(
-        x: number,
-        y: number,
-        { textProps }: { textProps?: React.SVGProps<SVGTextElement> } = {}
-    ): JSX.Element | null {
-        const { props, lines, fontSize, fontWeight, lineHeight } = this
-
-        if (lines.length === 0) return null
+    getPositionForSvgRendering(x: number, y: number): [number, number] {
+        const { lines, fontSize, lineHeight } = this
 
         // Magic number set through experimentation.
         // The HTML and SVG renderers need to position lines identically.
@@ -252,16 +251,35 @@ export class TextWrap {
         // overlap (see storybook of this component).
         const HEIGHT_CORRECTION_FACTOR = 0.74
 
-        const textHeight = lines[0].height * HEIGHT_CORRECTION_FACTOR
+        const textHeight = (lines[0].height ?? 0) * HEIGHT_CORRECTION_FACTOR
         const containerHeight = lineHeight * fontSize
         const yOffset =
             y + (containerHeight - (containerHeight - textHeight) / 2)
+
+        return [x, yOffset]
+    }
+
+    render(
+        x: number,
+        y: number,
+        {
+            textProps,
+            id,
+        }: { textProps?: React.SVGProps<SVGTextElement>; id?: string } = {}
+    ): React.ReactElement | null {
+        const { props, lines, fontSize, fontWeight, lineHeight } = this
+
+        if (lines.length === 0) return null
+
+        const [correctedX, correctedY] = this.getPositionForSvgRendering(x, y)
+
         return (
             <text
+                id={id}
                 fontSize={fontSize.toFixed(2)}
                 fontWeight={fontWeight}
-                x={x.toFixed(1)}
-                y={yOffset.toFixed(1)}
+                x={correctedX.toFixed(1)}
+                y={correctedY.toFixed(1)}
                 {...textProps}
             >
                 {lines.map((line, i) => {
@@ -269,8 +287,8 @@ export class TextWrap {
                         return (
                             <tspan
                                 key={i}
-                                x={x}
-                                y={yOffset + lineHeight * fontSize * i}
+                                x={correctedX}
+                                y={correctedY + lineHeight * fontSize * i}
                                 dangerouslySetInnerHTML={{ __html: line.text }}
                             />
                         )
@@ -278,9 +296,9 @@ export class TextWrap {
                         return (
                             <tspan
                                 key={i}
-                                x={x}
+                                x={correctedX}
                                 y={
-                                    yOffset +
+                                    correctedY +
                                     (i === 0 ? 0 : lineHeight * fontSize * i)
                                 }
                             >

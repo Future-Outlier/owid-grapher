@@ -2,129 +2,30 @@ import cheerio from "cheerio"
 import urlSlug from "url-slug"
 import React from "react"
 import ReactDOMServer from "react-dom/server.js"
-import { BAKED_BASE_URL, HTTPS_ONLY } from "../settings/serverSettings.js"
+import { HTTPS_ONLY } from "../settings/serverSettings.js"
 import { GrapherExports } from "../baker/GrapherBakingUtils.js"
-import { AllCharts, renderAllCharts } from "../site/blocks/AllCharts.js"
 import { FormattingOptions } from "@ourworldindata/types"
-import {
-    BLOCK_WRAPPER_DATATYPE,
-    DataValueProps,
-    FormattedPost,
-    FullPost,
-    JsonError,
-    TocHeading,
-    WP_BlockType,
-    parseKeyValueArgs,
-} from "@ourworldindata/utils"
+import { FormattedPost, FullPost, TocHeading } from "@ourworldindata/utils"
+import { parseKeyValueArgs } from "../serverUtils/wordpressUtils.js"
 import { Footnote } from "../site/Footnote.js"
 import { LoadingIndicator } from "@ourworldindata/grapher"
 import { PROMINENT_LINK_CLASSNAME } from "../site/blocks/ProminentLink.js"
-import { countryProfileSpecs } from "../site/countryProfileProjects.js"
 import { DataToken } from "../site/DataToken.js"
-import {
-    dataValueRegex,
-    DEEP_LINK_CLASS,
-    extractDataValuesConfiguration,
-    formatDataValue,
-    formatImages,
-} from "./formatting.js"
-import { mathjax } from "mathjax-full/js/mathjax.js"
-import { TeX } from "mathjax-full/js/input/tex.js"
-import { SVG } from "mathjax-full/js/output/svg.js"
-import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js"
-import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js"
-import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js"
+import { DEEP_LINK_CLASS, formatImages } from "./formatting.js"
 import { replaceIframesWithExplorerRedirectsInWordPressPost } from "./replaceExplorerRedirects.js"
 import { EXPLORERS_ROUTE_FOLDER } from "../explorer/ExplorerConstants.js"
-import {
-    getDataValue,
-    getOwidChartDimensionConfigForVariable,
-    getOwidVariableDisplayConfig,
-} from "../db/model/Variable.js"
-import { AnnotatingDataValue } from "../site/AnnotatingDataValue.js"
 import {
     ADDITIONAL_INFORMATION_CLASS_NAME,
     renderAdditionalInformation,
 } from "../site/blocks/AdditionalInformation.js"
 import { renderHelp } from "../site/blocks/Help.js"
 import { renderCodeSnippets } from "@ourworldindata/components"
-import { renderExpandableParagraphs } from "../site/blocks/ExpandableParagraph.js"
-import {
-    formatUrls,
-    getBodyHtml,
-    GRAPHER_PREVIEW_CLASS,
-    SUMMARY_CLASSNAME,
-} from "../site/formatting.js"
-import { renderKeyInsights, renderProminentLinks } from "./siteRenderers.js"
-import { KEY_INSIGHTS_CLASS_NAME } from "../site/blocks/KeyInsights.js"
+import { formatUrls, getBodyHtml } from "../site/formatting.js"
+import { GRAPHER_PREVIEW_CLASS } from "../site/SiteConstants.js"
+import { INTERACTIVE_ICON_SVG } from "../site/InteractionNotice.js"
+import { renderProminentLinks } from "./siteRenderers.js"
 import { RELATED_CHARTS_CLASS_NAME } from "../site/blocks/RelatedCharts.js"
-import { logErrorAndMaybeSendToBugsnag } from "../serverUtils/errorLog.js"
 import { KnexReadonlyTransaction } from "../db/db.js"
-
-const initMathJax = () => {
-    const adaptor = liteAdaptor()
-    RegisterHTMLHandler(adaptor)
-
-    const tex = new TeX({ packages: AllPackages })
-    const svg = new SVG({ fontCache: "none" })
-    const doc = mathjax.document("", {
-        InputJax: tex,
-        OutputJax: svg,
-    })
-
-    return function format(latex: string): string {
-        const node = doc.convert(latex, {
-            display: true,
-        })
-        return adaptor.outerHTML(node) // as HTML
-    }
-}
-
-const formatMathJax = initMathJax()
-
-// A modifed FontAwesome icon
-const INTERACTIVE_ICON_SVG = `<svg aria-hidden="true" focusable="false" data-prefix="fas" data-icon="hand-pointer" class="svg-inline--fa fa-hand-pointer fa-w-14" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 617">
-    <path fill="currentColor" d="M448,344.59v96a40.36,40.36,0,0,1-1.06,9.16l-32,136A40,40,0,0,1,376,616.59H168a40,40,0,0,1-32.35-16.47l-128-176a40,40,0,0,1,64.7-47.06L104,420.58v-276a40,40,0,0,1,80,0v200h8v-40a40,40,0,1,1,80,0v40h8v-24a40,40,0,1,1,80,0v24h8a40,40,0,1,1,80,0Zm-256,80h-8v96h8Zm88,0h-8v96h8Zm88,0h-8v96h8Z" transform="translate(0 -0.41)"/>
-    <path fill="currentColor" opacity="0.6" d="M239.76,234.78A27.5,27.5,0,0,1,217,192a87.76,87.76,0,1,0-145.9,0A27.5,27.5,0,1,1,25.37,222.6,142.17,142.17,0,0,1,1.24,143.17C1.24,64.45,65.28.41,144,.41s142.76,64,142.76,142.76a142.17,142.17,0,0,1-24.13,79.43A27.47,27.47,0,0,1,239.76,234.78Z" transform="translate(0 -0.41)"/>
-</svg>`
-
-const extractLatex = (html: string): [string, string[]] => {
-    const latexBlocks: string[] = []
-    html = html.replace(/\[latex\]([\s\S]*?)\[\/latex\]/gm, (_, latex) => {
-        latexBlocks.push(
-            latex.replace("\\[", "").replace("\\]", "").replace(/\$\$/g, "")
-        )
-        return "[latex]"
-    })
-    return [html, latexBlocks]
-}
-
-const formatLatex = async (
-    html: string,
-    latexBlocks?: string[]
-): Promise<string> => {
-    if (!latexBlocks) [html, latexBlocks] = extractLatex(html)
-
-    // return early so we don't do unnecessary work for sites without latex
-    if (!latexBlocks.length) return html
-
-    const compiled: string[] = []
-    for (const latex of latexBlocks) {
-        try {
-            compiled.push(formatMathJax(latex))
-        } catch (err) {
-            compiled.push(
-                `${latex} (Could not format equation due to MathJax error)`
-            )
-        }
-    }
-
-    let i = -1
-    return html.replace(/\[latex\]/g, () => {
-        i += 1
-        return compiled[i]
-    })
-}
 
 export const formatWordpressPost = async (
     post: FullPost,
@@ -134,26 +35,11 @@ export const formatWordpressPost = async (
 ): Promise<FormattedPost> => {
     let html = post.content
 
-    // Inject key insights early so they can be formatted by the embedding
-    // article. Another option would be to format the content independently,
-    // which would allow for inclusion further down the formatting pipeline.
-    // This is however creating issues by running non-idempotent formatting
-    // functions twice on the same content (e.g. table processing double wraps
-    // in "tableContainer" divs). On the other hand, rendering key insights last
-    // would require special care for footnotes.
-    html = await renderKeyInsights(html, post.id)
-
     // Standardize urls
     html = formatUrls(html)
 
     // Strip comments
     html = html.replace(/<!--[^>]+-->/g, "")
-
-    // Need to skirt around wordpress formatting to get proper latex rendering
-    let latexBlocks
-    ;[html, latexBlocks] = extractLatex(html)
-
-    html = await formatLatex(html, latexBlocks)
 
     // Footnotes
     const footnotes: string[] = []
@@ -173,73 +59,7 @@ export const formatWordpressPost = async (
         }
     })
 
-    const dataValuesConfigurationsMap =
-        await extractDataValuesConfiguration(html)
-    const dataValues = new Map<string, DataValueProps>()
-    for (const [
-        dataValueConfigurationString,
-        dataValueConfiguration,
-    ] of dataValuesConfigurationsMap) {
-        const { queryArgs, template } = dataValueConfiguration
-        const { variableId, chartId } = queryArgs
-        const { value, year, unit, entityName } =
-            (await getDataValue(queryArgs, knex)) || {}
-
-        if (!value || !year || !entityName || !template) continue
-
-        let formattedValue
-        if (variableId && chartId) {
-            const legacyVariableDisplayConfig =
-                await getOwidVariableDisplayConfig(variableId, knex)
-            const legacyChartDimension =
-                await getOwidChartDimensionConfigForVariable(
-                    variableId,
-                    chartId,
-                    knex
-                )
-            formattedValue = formatDataValue(
-                value,
-                variableId,
-                legacyVariableDisplayConfig,
-                legacyChartDimension
-            )
-        }
-
-        dataValues.set(dataValueConfigurationString, {
-            value,
-            formattedValue,
-            template,
-            year,
-            unit,
-            entityName,
-        })
-    }
-
-    const jsonErrors: JsonError[] = []
-
-    html = html.replace(dataValueRegex, (_, dataValueConfigurationString) => {
-        const dataValueProps: DataValueProps | undefined = dataValues.get(
-            dataValueConfigurationString
-        )
-        if (!dataValueProps) {
-            jsonErrors.push(
-                new JsonError(
-                    `Missing data value for {{DataValue ${dataValueConfigurationString}}}" in ${BAKED_BASE_URL}/${post.slug}`
-                )
-            )
-            return "{ ⚠️ Value pending update }"
-        }
-        return ReactDOMServer.renderToString(
-            <span data-type={BLOCK_WRAPPER_DATATYPE}>
-                <AnnotatingDataValue dataValueProps={dataValueProps} />
-            </span>
-        )
-    })
-
-    await Promise.allSettled(jsonErrors.map(logErrorAndMaybeSendToBugsnag))
-
-    // Needs to be happen after DataValue replacements, as the DataToken regex
-    // would otherwise capture DataValue tags
+    // The only two supported ones here are: {{LastUpdated timestampUrl:...}} and {{FullWidthRawHtml url:...}}
     const dataTokenRegex = /{{\s*([a-zA-Z]+)\s*(.+?)\s*}}/g
 
     html = html.replace(
@@ -269,42 +89,11 @@ export const formatWordpressPost = async (
 
     const cheerioEl = cheerio.load(html)
 
-    // Related charts
-    if (
-        !countryProfileSpecs.some(
-            (spec) => post.slug === spec.landingPageSlug
-        ) &&
-        post.relatedCharts?.length &&
-        // Render fallback "All charts" block at the top of entries only if
-        // manual "All charts" block not present in the rest of the document.
-        // This is to help transitioning towards topic pages, where this block
-        // is manually added in the content. In that case, we don't want to
-        // inject it at the top too.
-        !cheerioEl(`block[type='${WP_BlockType.AllCharts}']`).length
-    ) {
-        // Mimicking SSR output of additional information block from PHP
-        const allCharts = `
-        <block type="additional-information" default-open="false">
-            <content>
-            ${ReactDOMServer.renderToStaticMarkup(<AllCharts post={post} />)}
-            </content>
-        </block>
-        `
-        const $summary = cheerioEl(`.${SUMMARY_CLASSNAME}`)
-        if ($summary.length !== 0) {
-            $summary.after(allCharts)
-        } else {
-            cheerioEl("body > h2:first-of-type, body > h3:first-of-type")
-                .first()
-                .before(allCharts)
-        }
-    }
-
     // SSR rendering of Gutenberg blocks, before hydration on client
     //
     // - Note: any post-processing on these blocks runs the risk of hydration
     //   discrepancies. E.g. the ToC post-processing further below add an "id"
-    //   attribute to elibigle heading tags. In an unbridled version of that
+    //   attribute to eligible heading tags. In an unbridled version of that
     //   script, the AdditionalInformation block title (h3) would be altered and
     //   receive an "id" attribute (<h3 id="some-title">). When this block is
     //   then hydrated on the client, the "id" attribute is missing, since it
@@ -313,10 +102,8 @@ export const formatWordpressPost = async (
     //   perspective, the server rendered version is different from the client
     //   one, hence the discrepancy.
     renderAdditionalInformation(cheerioEl)
-    renderExpandableParagraphs(cheerioEl)
     renderCodeSnippets(cheerioEl)
     renderHelp(cheerioEl)
-    renderAllCharts(cheerioEl, post)
     await renderProminentLinks(cheerioEl, post.id, knex)
 
     // Extract inline styling
@@ -565,27 +352,12 @@ export const formatWordpressPost = async (
 
         $heading.attr("id", slug)
 
-        if ($heading.closest(`.${KEY_INSIGHTS_CLASS_NAME}`).length) return
-
         $heading.append(`<a class="${DEEP_LINK_CLASS}" href="#${slug}"></a>`)
     })
-
-    // Extracting the useful information from the HTML
-    const stickyNavLinks: { text: string; target: string }[] = []
-    const $stickyNavContents = cheerioEl(".sticky-nav-contents")
-    const $stickyNavLinks = $stickyNavContents.children().children()
-    $stickyNavLinks.each((_, element) => {
-        const $elem = cheerioEl(element)
-        const text = $elem.text()
-        const target = $elem.attr("href")
-        if (text && target) stickyNavLinks.push({ text, target })
-    })
-    $stickyNavContents.remove()
 
     return {
         ...post,
         supertitle,
-        stickyNavLinks,
         lastUpdated,
         byline,
         info,

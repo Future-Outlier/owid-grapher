@@ -9,7 +9,7 @@ import {
     faLink,
     faEdit,
 } from "@fortawesome/free-solid-svg-icons"
-import { canWriteToClipboard } from "@ourworldindata/utils"
+import { canWriteToClipboard, isAndroid, isIOS } from "@ourworldindata/utils"
 
 export interface ShareMenuManager {
     slug?: string
@@ -28,6 +28,54 @@ interface ShareMenuProps {
 interface ShareMenuState {
     canWriteToClipboard: boolean
     copied: boolean
+}
+
+type ShareApiManager = Pick<ShareMenuManager, "canonicalUrl" | "currentTitle">
+
+const getShareData = (manager: ShareApiManager): ShareData | undefined => {
+    if (!manager.canonicalUrl) return undefined
+
+    return {
+        title: manager.currentTitle ?? "",
+        url: manager.canonicalUrl,
+    }
+}
+
+const canUseShareApi = (manager: ShareApiManager): boolean => {
+    const shareData = getShareData(manager)
+    if (!shareData) return false
+
+    return (
+        "share" in navigator &&
+        "canShare" in navigator &&
+        navigator.canShare(shareData)
+    )
+}
+
+// On mobile OSs, the system-level share API does a way better job of providing
+// relevant options to the user than our own <ShareMenu> does - for example,
+// quick access to messaging apps, the user's frequent contacts, etc.
+// So, on Android and iOS, we want to just show the system-level share dialog
+// immediately when the user clicks the share button, rather than showing our
+// own menu.
+// See https://github.com/owid/owid-grapher/issues/3446
+// -@marcelgerber, 2024-04-24
+export const shouldShareUsingShareApi = (manager: ShareApiManager): boolean =>
+    (isAndroid() || isIOS()) && canUseShareApi(manager)
+
+export const shareUsingShareApi = async (
+    manager: ShareApiManager
+): Promise<void> => {
+    if (!navigator.share) return
+
+    const shareData = getShareData(manager)
+    if (!shareData) return
+
+    try {
+        await navigator.share(shareData)
+    } catch (err) {
+        console.error("couldn't share using navigator.share", err)
+    }
 }
 
 @observer
@@ -88,18 +136,7 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
     }
 
     @action.bound async onNavigatorShare(): Promise<void> {
-        if (!this.canonicalUrl || !navigator.share) return
-
-        const shareData = {
-            title: this.title,
-            url: this.canonicalUrl,
-        }
-
-        try {
-            await navigator.share(shareData)
-        } catch (err) {
-            console.error("couldn't share using navigator.share", err)
-        }
+        await shareUsingShareApi(this.manager)
     }
 
     @action.bound async onCopyUrl(): Promise<void> {
@@ -133,8 +170,18 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
         return href
     }
 
-    render(): JSX.Element {
-        const { twitterHref, facebookHref, isDisabled, manager } = this
+    @computed get canUseShareApi(): boolean {
+        return canUseShareApi(this.manager)
+    }
+
+    render(): React.ReactElement {
+        const {
+            twitterHref,
+            facebookHref,
+            isDisabled,
+            canUseShareApi,
+            manager,
+        } = this
         const { editUrl } = manager
 
         const width = 200
@@ -156,7 +203,7 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
                     title="Tweet a link"
                     data-track-note="chart_share_twitter"
                     href={twitterHref}
-                    rel="noopener"
+                    rel="noreferrer noopener"
                 >
                     <span className="icon">
                         <FontAwesomeIcon icon={faXTwitter} />
@@ -168,7 +215,7 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
                     title="Share on Facebook"
                     data-track-note="chart_share_facebook"
                     href={facebookHref}
-                    rel="noopener"
+                    rel="noreferrer noopener"
                 >
                     <span className="icon">
                         <FontAwesomeIcon icon={faFacebook} />
@@ -186,7 +233,7 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
                     </span>{" "}
                     Embed
                 </a>
-                {"share" in navigator && (
+                {canUseShareApi && (
                     <a
                         title="Share this visualization with an app on your device"
                         data-track-note="chart_share_navigator"
@@ -215,7 +262,7 @@ export class ShareMenu extends React.Component<ShareMenuProps, ShareMenuState> {
                         target="_blank"
                         title="Edit chart"
                         href={editUrl}
-                        rel="noopener"
+                        rel="noreferrer noopener"
                     >
                         <span className="icon">
                             <FontAwesomeIcon icon={faEdit} />

@@ -20,18 +20,7 @@ export {
     type UserCountryInformation,
     type QueryParams,
 } from "./domainTypes/Various.js"
-export {
-    type DataValueConfiguration,
-    type DataValueProps,
-    type DataValueQueryArgs,
-    type DataValueResult,
-} from "./domainTypes/DataValues.js"
-export {
-    type BreadcrumbItem,
-    type KeyInsight,
-    type KeyValueProps,
-    BLOCK_WRAPPER_DATATYPE,
-} from "./domainTypes/Site.js"
+export { type BreadcrumbItem, type KeyValueProps } from "./domainTypes/Site.js"
 export {
     type FormattedPost,
     type IndexPost,
@@ -110,6 +99,7 @@ export {
     GrapherStaticFormat,
     type ChartRedirect,
     type DetailsMarker,
+    GrapherWindowType,
 } from "./grapherTypes/GrapherTypes.js"
 
 export {
@@ -122,13 +112,19 @@ export {
 } from "./domainTypes/Layout.js"
 
 export {
-    type EntryMeta,
-    type PostReference,
+    TagGraphRootName,
     type CategoryWithEntries,
+    type EntryMeta,
+    type FlatTagGraph,
+    type FlatTagGraphNode,
+    type PostReference,
+    type TagGraphNode,
+    type TagGraphRoot,
+    type DbInsertTagGraphNode,
+    type DbPlainTagGraphNode,
 } from "./domainTypes/ContentGraph.js"
 export {
     WP_BlockClass,
-    WP_BlockType,
     WP_ColumnStyle,
     WP_PostType,
     type PostRestApi,
@@ -370,15 +366,17 @@ export {
     type OwidProcessingLevel,
     type IndicatorTitleWithFragments,
     joinTitleFragments,
+    type OwidVariableType,
 } from "./OwidVariable.js"
 
 export type { OwidSource } from "./OwidSource.js"
 export type { OwidOrigin } from "./OwidOrigin.js"
 
-export type {
-    OwidVariableDisplayConfigInterface,
-    OwidVariableDataTableConfigInterface,
-    OwidChartDimensionInterface,
+export {
+    type OwidVariableDisplayConfigInterface,
+    type OwidVariableDataTableConfigInterface,
+    OwidVariableRoundingMode,
+    type OwidChartDimensionInterface,
 } from "./OwidVariableDisplayConfigInterface.js"
 
 export {
@@ -449,6 +447,11 @@ export {
     ChartTagsTableName,
     type DbChartTagJoin,
 } from "./dbTypes/ChartTags.js"
+export {
+    ChartsXEntitiesTableName,
+    type DbInsertChartXEntity,
+    type DbPlainChartXEntity,
+} from "./dbTypes/ChartsXEntities.js"
 export {
     type DbPlainCountryLatestData,
     type DbInsertCountryLatestData,
@@ -535,13 +538,16 @@ export {
 export {
     type DbInsertPostGdoc,
     type DbRawPostGdoc,
+    type DBRawPostGdocWithTags,
     type DbEnrichedPostGdoc,
+    type DBEnrichedPostGdocWithTags,
     PostsGdocsTableName,
     parsePostGdocContent,
     serializePostGdocContent,
     parsePostsGdocsBreadcrumbs,
     serializePostsGdocsBreadcrumbs,
     parsePostsGdocsRow,
+    parsePostsGdocsWithTagsRow,
     serializePostsGdocsRow,
 } from "./dbTypes/PostsGdocs.js"
 export {
@@ -603,6 +609,8 @@ export {
 export {
     type DbInsertTag,
     type DbPlainTag,
+    type MinimalTagWithIsTopic,
+    type MinimalTag,
     TagsTableName,
 } from "./dbTypes/Tags.js"
 export {
@@ -646,6 +654,8 @@ export { RedirectCode, type DbPlainRedirect } from "./dbTypes/Redirects.js"
 export type { Nominal } from "./NominalType.js"
 
 export {
+    type DbRawAuthor,
+    type DbEnrichedAuthor,
     type DbRawLatestWork,
     type DbEnrichedLatestWork,
     parseLatestWork,

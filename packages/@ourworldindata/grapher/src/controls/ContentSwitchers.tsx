@@ -6,25 +6,46 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
 import { faTable, faEarthAmericas } from "@fortawesome/free-solid-svg-icons"
 import { ChartTypeName, GrapherTabOption } from "@ourworldindata/types"
 import { chartIcons } from "./ChartIcons"
+import { Bounds, capitalize } from "@ourworldindata/utils"
 
 export interface ContentSwitchersManager {
     availableTabs?: GrapherTabOption[]
     tab?: GrapherTabOption
     isNarrow?: boolean
-    type?: ChartTypeName
+    isMedium?: boolean
+    type: ChartTypeName
     isLineChartThatTurnedIntoDiscreteBar?: boolean
 }
+
+// keep in sync with ContentSwitcher.scss
+const TAB_FONT_SIZE = 13
+const ICON_WIDTH = 13
+const ICON_PADDING = 6
 
 @observer
 export class ContentSwitchers extends React.Component<{
     manager: ContentSwitchersManager
 }> {
+    static shouldShow(manager: ContentSwitchersManager): boolean {
+        const test = new ContentSwitchers({ manager })
+        return test.showTabs
+    }
+
+    static width(manager: ContentSwitchersManager): number {
+        const test = new ContentSwitchers({ manager })
+        return test.width
+    }
+
     @computed private get manager(): ContentSwitchersManager {
         return this.props.manager
     }
 
     @computed private get availableTabs(): GrapherTabOption[] {
         return this.manager.availableTabs || []
+    }
+
+    @computed private get showTabs(): boolean {
+        return this.availableTabs.length > 1
     }
 
     @computed private get showTabLabels(): boolean {
@@ -35,7 +56,26 @@ export class ContentSwitchers extends React.Component<{
         return this.manager.type ?? ChartTypeName.LineChart
     }
 
-    private tabIcon(tab: GrapherTabOption): JSX.Element {
+    @computed get width(): number {
+        return this.availableTabs.reduce((totalWidth, tab) => {
+            // keep in sync with ContentSwitcher.scss
+            const outerPadding =
+                this.showTabLabels && this.manager.isMedium ? 8 : 16
+
+            let tabWidth = 2 * outerPadding + ICON_WIDTH
+
+            if (this.showTabLabels) {
+                const labelWidth = Bounds.forText(capitalize(tab), {
+                    fontSize: TAB_FONT_SIZE,
+                }).width
+                tabWidth += labelWidth + ICON_PADDING
+            }
+
+            return totalWidth + tabWidth
+        }, 0)
+    }
+
+    private tabIcon(tab: GrapherTabOption): React.ReactElement {
         const { manager } = this
         switch (tab) {
             case GrapherTabOption.table:
@@ -50,7 +90,7 @@ export class ContentSwitchers extends React.Component<{
         }
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { manager } = this
         return (
             <ul
@@ -78,11 +118,11 @@ export class ContentSwitchers extends React.Component<{
 
 function Tab(props: {
     tab: GrapherTabOption
-    icon: JSX.Element
+    icon: React.ReactElement
     isActive?: boolean
     onClick?: React.MouseEventHandler<HTMLButtonElement>
     showLabel?: boolean
-}): JSX.Element {
+}): React.ReactElement {
     const className = "tab clickable" + (props.isActive ? " active" : "")
     return (
         <li key={props.tab} className={className}>

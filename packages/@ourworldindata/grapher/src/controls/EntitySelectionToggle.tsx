@@ -10,17 +10,18 @@ import {
 import classnames from "classnames"
 
 export interface EntitySelectionManager {
-    showSelectEntitiesButton?: boolean
-    showChangeEntityButton?: boolean
-    showAddEntityButton?: boolean
+    canHighlightEntities?: boolean
+    canChangeEntity?: boolean
+    canAddEntities?: boolean
     entityType?: string
     entityTypePlural?: string
-    isSelectingData?: boolean
+    isEntitySelectorModalOrDrawerOpen?: boolean
     isOnChartTab?: boolean
+    hideEntityControls?: boolean
 }
 
 interface EntitySelectionLabel {
-    icon: JSX.Element
+    icon: React.ReactElement
     action: string
     entity: string
 }
@@ -35,7 +36,8 @@ export class EntitySelectionToggle extends React.Component<{
     }
 
     @computed get showToggle(): boolean {
-        const { isOnChartTab } = this.props.manager
+        const { isOnChartTab, hideEntityControls } = this.props.manager
+        if (hideEntityControls) return false
         return !!(isOnChartTab && this.label)
     }
 
@@ -43,24 +45,24 @@ export class EntitySelectionToggle extends React.Component<{
         const {
             entityType = "",
             entityTypePlural = "",
-            showSelectEntitiesButton,
-            showChangeEntityButton,
-            showAddEntityButton,
+            canHighlightEntities,
+            canChangeEntity,
+            canAddEntities,
         } = this.props.manager
 
-        return showSelectEntitiesButton
+        return canHighlightEntities
             ? {
                   action: "Select",
                   entity: entityTypePlural,
                   icon: <FontAwesomeIcon icon={faEye} />,
               }
-            : showChangeEntityButton
+            : canChangeEntity
               ? {
                     action: "Change",
                     entity: entityType,
                     icon: <FontAwesomeIcon icon={faRightLeft} />,
                 }
-              : showAddEntityButton
+              : canAddEntities
                 ? {
                       action: "Edit",
                       entity: entityTypePlural,
@@ -69,16 +71,17 @@ export class EntitySelectionToggle extends React.Component<{
                 : null
     }
 
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { showToggle, label } = this
-        const { isSelectingData: active } = this.props.manager
+        const { isEntitySelectorModalOrDrawerOpen: active } = this.props.manager
 
         return showToggle && label ? (
             <div className="entity-selection-menu">
                 <button
                     className={classnames("menu-toggle", { active })}
                     onClick={(e): void => {
-                        this.props.manager.isSelectingData = !active
+                        this.props.manager.isEntitySelectorModalOrDrawerOpen =
+                            !active
                         e.stopPropagation()
                     }}
                     type="button"

@@ -23,6 +23,9 @@
             "path": "./settings"
         },
         {
+            "path": "./adminShared"
+        },
+        {
             "path": "./adminSiteClient"
         },
         {
@@ -39,9 +42,6 @@
         },
         {
             "path": "./devTools/schemaProcessor"
-        },
-        {
-            "path": "./devTools/uploadWordpressImagesToObjStorage"
         },
         {
             "path": "./devTools/markdownTest"

@@ -10,10 +10,12 @@ import {
     getRelativeMouse,
     colorScaleConfigDefaults,
     dyFromAlign,
+    makeIdForHumanConsumption,
+    excludeUndefined,
 } from "@ourworldindata/utils"
 import {
     VerticalAxisComponent,
-    HorizontalAxisTickMarks,
+    HorizontalAxisTickMark,
     VerticalAxisGridLines,
 } from "../axis/AxisViews"
 import { NoDataModal } from "../noDataModal/NoDataModal"
@@ -22,7 +24,13 @@ import {
     VerticalColorLegendManager,
     LegendItem,
 } from "../verticalColorLegend/VerticalColorLegend"
-import { Tooltip, TooltipState, TooltipTable } from "../tooltip/Tooltip"
+import { TooltipFooterIcon } from "../tooltip/TooltipProps.js"
+import {
+    Tooltip,
+    TooltipState,
+    TooltipTable,
+    makeTooltipRoundingNotice,
+} from "../tooltip/Tooltip"
 import {
     BASE_FONT_SIZE,
     GRAPHER_AREA_OPACITY_DEFAULT,
@@ -38,11 +46,17 @@ import {
 } from "./AbstractStackedChart"
 import { StackedPoint, StackedSeries } from "./StackedConstants"
 import { VerticalAxis } from "../axis/Axis"
-import { ColorSchemeName, VerticalAlign } from "@ourworldindata/types"
+import {
+    ColorSchemeName,
+    HorizontalAlign,
+    VerticalAlign,
+} from "@ourworldindata/types"
 import { stackSeries, withMissingValuesAsZeroes } from "./StackedUtils"
 import { makeClipPath } from "../chart/ChartUtils"
 import { ColorScaleConfigDefaults } from "../color/ColorScaleConfig"
 import { ColumnTypeMap } from "@ourworldindata/core-table"
+import { HorizontalCategoricalColorLegend } from "../horizontalColorLegend/HorizontalColorLegends"
+import { CategoricalBin, ColorScaleBin } from "../color/ColorScaleBin"
 
 interface StackedBarSegmentProps extends React.SVGAttributes<SVGGElement> {
     bar: StackedPoint<Time>
@@ -96,7 +110,7 @@ class StackedBarSegment extends React.Component<StackedBarSegmentProps> {
         this.props.onBarMouseLeave()
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { color, xOffset, barWidth } = this.props
         const { yPos, barHeight, trueOpacity } = this
 
@@ -158,8 +172,22 @@ export class StackedBarChart
         )
     }
 
-    @computed protected get paddingForLegend(): number {
-        return this.sidebarWidth + 20
+    @computed private get showHorizontalLegend(): boolean {
+        return !!(this.manager.isSemiNarrow || this.manager.isStaticAndSmall)
+    }
+
+    @computed get legendAlign(): HorizontalAlign {
+        return HorizontalAlign.left
+    }
+
+    @computed protected get paddingForLegendRight(): number {
+        return this.showHorizontalLegend ? 0 : this.sidebarWidth + 20
+    }
+
+    @computed protected get paddingForLegendTop(): number {
+        return this.showHorizontalLegend
+            ? this.horizontalColorLegend.height + 8
+            : 0
     }
 
     @computed get shouldRunLinearInterpolation(): boolean {
@@ -206,7 +234,9 @@ export class StackedBarChart
         )
     }
 
-    @computed get legendItems(): LegendItem[] {
+    // used by <VerticalColorLegend />
+    @computed get legendItems(): (LegendItem &
+        Required<Pick<LegendItem, "label">>)[] {
         return this.series
             .map((series) => {
                 return {
@@ -217,30 +247,62 @@ export class StackedBarChart
             .reverse() // Vertical legend orders things in the opposite direction we want
     }
 
+    // used by <HorizontalCategoricalColorLegend />
+    @computed get categoricalLegendData(): CategoricalBin[] {
+        return this.legendItems.map(
+            (legendItem, index) =>
+                new CategoricalBin({
+                    index,
+                    value: legendItem.label,
+                    label: legendItem.label,
+                    color: legendItem.color,
+                })
+        )
+    }
+
+    @computed get legendWidth(): number {
+        return this.showHorizontalLegend
+            ? this.bounds.width
+            : this.verticalColorLegend.width
+    }
+
     @computed get maxLegendWidth(): number {
-        return this.sidebarMaxWidth
+        return this.showHorizontalLegend
+            ? this.bounds.width
+            : this.sidebarMaxWidth
     }
 
     @computed get sidebarMaxWidth(): number {
         return this.bounds.width / 5
     }
+
     @computed get sidebarMinWidth(): number {
         return 100
     }
+
     @computed get sidebarWidth(): number {
-        if (this.manager.hideLegend) return 0
-        const { sidebarMinWidth, sidebarMaxWidth, legendDimensions } = this
+        if (!this.manager.showLegend) return 0
+        const {
+            sidebarMinWidth,
+            sidebarMaxWidth,
+            verticalColorLegend: legendDimensions,
+        } = this
         return Math.max(
             Math.min(legendDimensions.width, sidebarMaxWidth),
             sidebarMinWidth
         )
     }
 
-    @computed private get legendDimensions(): VerticalColorLegend {
+    @computed private get verticalColorLegend(): VerticalColorLegend {
         return new VerticalColorLegend({ manager: this })
     }
 
-    @computed get tooltip(): JSX.Element | undefined {
+    @computed
+    private get horizontalColorLegend(): HorizontalCategoricalColorLegend {
+        return new HorizontalCategoricalColorLegend({ manager: this })
+    }
+
+    @computed get tooltip(): React.ReactElement | undefined {
         const {
             tooltipState: { target, position, fading },
             yColumns,
@@ -256,8 +318,8 @@ export class StackedBarChart
             hoverTime = hoveredTick.time
         } else return
 
-        const yColumn = yColumns[0], // we can just use the first column for formatting, b/c we assume all columns have same type
-            { unit, shortUnit } = yColumn
+        const formatColumn = yColumns[0], // we can just use the first column for formatting, b/c we assume all columns have same type
+            { unit, shortUnit } = formatColumn
 
         const totalValue = sum(
             series.map(
@@ -265,6 +327,16 @@ export class StackedBarChart
                     points.find((bar) => bar.position === hoverTime)?.value ?? 0
             )
         )
+
+        const roundingNotice = formatColumn.roundsToSignificantFigures
+            ? {
+                  icon: TooltipFooterIcon.none,
+                  text: makeTooltipRoundingNotice([
+                      formatColumn.numSignificantFigures,
+                  ]),
+              }
+            : undefined
+        const footer = excludeUndefined([roundingNotice])
 
         return (
             <Tooltip
@@ -275,13 +347,14 @@ export class StackedBarChart
                 style={{ maxWidth: "500px" }}
                 offsetX={20}
                 offsetY={-16}
-                title={yColumn.formatTime(hoverTime)}
+                title={formatColumn.formatTime(hoverTime)}
                 subtitle={unit !== shortUnit ? unit : undefined}
                 subtitleFormat="unit"
+                footer={footer}
                 dissolve={fading}
             >
                 <TooltipTable
-                    columns={[yColumn]}
+                    columns={[formatColumn]}
                     totals={[totalValue]}
                     rows={series
                         .slice()
@@ -301,7 +374,13 @@ export class StackedBarChart
                                 point?.fake ? undefined : point?.value,
                             ]
 
-                            return { name, swatch, blurred, focused, values }
+                            return {
+                                name,
+                                swatch,
+                                blurred,
+                                focused,
+                                values,
+                            }
                         })}
                 />
             </Tooltip>
@@ -365,8 +444,12 @@ export class StackedBarChart
         return tickPlacements.filter((t) => !t.isHidden)
     }
 
-    @action.bound onLegendMouseOver(color: string): void {
-        this.hoverColor = color
+    // Both legend managers accept a `onLegendMouseOver` property, but define different signatures.
+    // The <HorizontalCategoricalColorLegend /> component expects a string,
+    // the <VerticalColorLegend /> component expects a ColorScaleBin.
+    @action.bound onLegendMouseOver(binOrColor: string | ColorScaleBin): void {
+        this.hoverColor =
+            typeof binOrColor === "string" ? binOrColor : binOrColor.color
     }
 
     @action.bound onLegendMouseLeave(): void {
@@ -399,7 +482,7 @@ export class StackedBarChart
         this.tooltipState.target = null
     }
 
-    render(): JSX.Element {
+    render(): React.ReactElement {
         if (this.failMessage)
             return (
                 <NoDataModal
@@ -428,6 +511,12 @@ export class StackedBarChart
         const axisLineWidth = manager.isStaticAndSmall
             ? GRAPHER_AXIS_LINE_WIDTH_THICK
             : GRAPHER_AXIS_LINE_WIDTH_DEFAULT
+
+        const legend = this.showHorizontalLegend ? (
+            <HorizontalCategoricalColorLegend manager={this} />
+        ) : (
+            <VerticalColorLegend manager={this} />
+        )
 
         return (
             <g
@@ -460,20 +549,31 @@ export class StackedBarChart
                     strokeWidth={axisLineWidth}
                 />
 
-                <HorizontalAxisTickMarks
-                    tickMarkTopPosition={innerBounds.bottom}
-                    tickMarkXPositions={ticks.map(
-                        (tick) => tick.bounds.centerX
-                    )}
-                    color="#666"
-                    width={axisLineWidth}
-                />
+                <g id={makeIdForHumanConsumption("tick-marks")}>
+                    {ticks.map((tick, i) => (
+                        <HorizontalAxisTickMark
+                            key={i}
+                            id={makeIdForHumanConsumption(
+                                "tick-mark",
+                                tick.text
+                            )}
+                            tickMarkTopPosition={innerBounds.bottom}
+                            tickMarkXPosition={tick.bounds.centerX}
+                            color="#666"
+                            width={axisLineWidth}
+                        />
+                    ))}
+                </g>
 
-                <g>
+                <g id={makeIdForHumanConsumption("tick-labels")}>
                     {ticks.map((tick, i) => {
                         return (
                             <text
                                 key={i}
+                                id={makeIdForHumanConsumption(
+                                    "tick__label",
+                                    tick.text
+                                )}
                                 x={tick.bounds.x}
                                 y={tick.bounds.y + 1}
                                 fill={GRAPHER_DARK_TEXT}
@@ -537,12 +637,14 @@ export class StackedBarChart
                     })}
                 </g>
 
-                {!this.manager.hideLegend && (
-                    <VerticalColorLegend manager={this} />
-                )}
+                {this.manager.showLegend && legend}
                 {tooltip}
             </g>
         )
+    }
+
+    @computed get categoryLegendY(): number {
+        return this.bounds.top
     }
 
     @computed get legendY(): number {
@@ -550,7 +652,9 @@ export class StackedBarChart
     }
 
     @computed get legendX(): number {
-        return this.bounds.right - this.sidebarWidth
+        return this.showHorizontalLegend
+            ? this.bounds.left
+            : this.bounds.right - this.sidebarWidth
     }
 
     @computed private get xValues(): number[] {

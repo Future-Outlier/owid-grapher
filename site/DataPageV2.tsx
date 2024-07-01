@@ -1,7 +1,6 @@
 import {
     getVariableDataRoute,
     getVariableMetadataRoute,
-    GRAPHER_SETTINGS_DRAWER_ID,
     GrapherProgrammaticInterface,
 } from "@ourworldindata/grapher"
 import {
@@ -14,6 +13,8 @@ import {
     FaqEntryData,
     pick,
     GrapherInterface,
+    ImageMetadata,
+    Url,
 } from "@ourworldindata/utils"
 import { MarkdownTextWrap } from "@ourworldindata/components"
 import React from "react"
@@ -40,6 +41,7 @@ export const DataPageV2 = (props: {
     baseGrapherUrl: string
     isPreviewing: boolean
     faqEntries?: FaqEntryData
+    imageMetadata: Record<string, ImageMetadata>
     tagToSlugMap: Record<string | number, string>
 }) => {
     const {
@@ -50,11 +52,13 @@ export const DataPageV2 = (props: {
         isPreviewing,
         faqEntries,
         tagToSlugMap,
+        imageMetadata,
     } = props
     const pageTitle = grapher?.title ?? datapageData.title.title
     const canonicalUrl = grapher?.slug
         ? urljoin(baseGrapherUrl, grapher.slug as string)
         : ""
+    const dataApiOrigin = Url.fromURL(DATA_API_URL).origin
     let pageDesc: string
     if (grapher?.subtitle?.length) {
         // convert subtitle from markdown to plaintext
@@ -116,11 +120,7 @@ export const DataPageV2 = (props: {
                 <meta property="og:image:width" content={imageWidth} />
                 <meta property="og:image:height" content={imageHeight} />
                 <IFrameDetector />
-                <noscript>
-                    <style>{`
-                    figure[data-grapher-src] { display: none !important; }
-                `}</style>
-                </noscript>
+                <link rel="preconnect" href={dataApiOrigin} />
                 {variableIds.flatMap((variableId) =>
                     [
                         getVariableDataRoute(DATA_API_URL, variableId),
@@ -135,37 +135,43 @@ export const DataPageV2 = (props: {
                         />
                     ))
                 )}
+                <link
+                    rel="preload"
+                    href="/fonts/PlayfairDisplayLatin-SemiBold.woff2"
+                    as="font"
+                    type="font/woff2"
+                    crossOrigin="anonymous"
+                />
             </Head>
             <body className="DataPage">
                 <SiteHeader baseUrl={baseUrl} />
                 <main>
-                    <>
-                        <nav id={GRAPHER_SETTINGS_DRAWER_ID}></nav>
-                        <script
-                            dangerouslySetInnerHTML={{
-                                __html: `window._OWID_DATAPAGEV2_PROPS = ${JSON.stringify(
-                                    {
-                                        datapageData,
-                                        faqEntries,
-                                        canonicalUrl,
-                                        tagToSlugMap: minimalTagToSlugMap,
-                                    }
-                                )}`,
-                            }}
-                        />
-                        <div id={OWID_DATAPAGE_CONTENT_ROOT_ID}>
-                            <DebugProvider debug={isPreviewing}>
-                                <DataPageV2Content
-                                    datapageData={datapageData}
-                                    grapherConfig={grapherConfig}
-                                    isPreviewing={isPreviewing}
-                                    faqEntries={faqEntries}
-                                    canonicalUrl={canonicalUrl}
-                                    tagToSlugMap={tagToSlugMap}
-                                />
-                            </DebugProvider>
-                        </div>
-                    </>
+                    <script
+                        dangerouslySetInnerHTML={{
+                            __html: `window._OWID_DATAPAGEV2_PROPS = ${JSON.stringify(
+                                {
+                                    datapageData,
+                                    faqEntries,
+                                    canonicalUrl,
+                                    tagToSlugMap: minimalTagToSlugMap,
+                                    imageMetadata,
+                                }
+                            )}`,
+                        }}
+                    />
+                    <div id={OWID_DATAPAGE_CONTENT_ROOT_ID}>
+                        <DebugProvider debug={isPreviewing}>
+                            <DataPageV2Content
+                                datapageData={datapageData}
+                                grapherConfig={grapherConfig}
+                                imageMetadata={imageMetadata}
+                                isPreviewing={isPreviewing}
+                                faqEntries={faqEntries}
+                                canonicalUrl={canonicalUrl}
+                                tagToSlugMap={tagToSlugMap}
+                            />
+                        </DebugProvider>
+                    </div>
                 </main>
                 <SiteFooter
                     baseUrl={baseUrl}

@@ -34,13 +34,16 @@ export const BAKED_GRAPHER_EXPORTS_BASE_URL: string =
 export const BAKED_SITE_EXPORTS_BASE_URL: string =
     process.env.BAKED_SITE_EXPORTS_BASE_URL ?? `${BAKED_BASE_URL}/exports`
 
+export const GRAPHER_DYNAMIC_THUMBNAIL_URL: string =
+    process.env.GRAPHER_DYNAMIC_THUMBNAIL_URL ??
+    `${BAKED_GRAPHER_URL}/thumbnail`
+
 export const ADMIN_BASE_URL: string =
     process.env.ADMIN_BASE_URL ??
     `http://${ADMIN_SERVER_HOST}:${ADMIN_SERVER_PORT}`
 // e.g. "https://api.ourworldindata.org/v1/indicators/" or "https://api-staging.owid.io/user/v1/indicators/"
 export const DATA_API_URL: string =
     process.env.DATA_API_URL ?? "https://api.ourworldindata.org/v1/indicators/"
-export const WORDPRESS_URL: string = process.env.WORDPRESS_URL ?? ""
 
 export const ALGOLIA_ID: string = process.env.ALGOLIA_ID ?? ""
 export const ALGOLIA_SEARCH_KEY: string = process.env.ALGOLIA_SEARCH_KEY ?? ""
@@ -58,7 +61,7 @@ export const GOOGLE_TAG_MANAGER_ID: string =
     process.env.GOOGLE_TAG_MANAGER_ID ?? ""
 
 export const TOPICS_CONTENT_GRAPH: boolean =
-    process.env.TOPICS_CONTENT_GRAPH === "true" ?? false
+    process.env.TOPICS_CONTENT_GRAPH === "true"
 
 export const GDOCS_CLIENT_EMAIL: string = process.env.GDOCS_CLIENT_EMAIL ?? ""
 export const GDOCS_BASIC_ARTICLE_TEMPLATE_URL: string =
@@ -85,3 +88,5 @@ export const ETL_API_URL: string =
 
 export const GDOCS_DETAILS_ON_DEMAND_ID: string =
     process.env.GDOCS_DETAILS_ON_DEMAND_ID ?? ""
+
+export const PUBLISHED_AT_FORMAT = "ddd, MMM D, YYYY HH:mm"

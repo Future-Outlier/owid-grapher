@@ -3,8 +3,15 @@ import classnames from "classnames"
 import { CoreColumn } from "@ourworldindata/core-table"
 import { NO_DATA_LABEL } from "../color/ColorScale.js"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome/index.js"
-import { faInfoCircle } from "@fortawesome/free-solid-svg-icons"
-import { sum, zip, uniq, isNumber } from "@ourworldindata/utils"
+import { faInfoCircle, faS } from "@fortawesome/free-solid-svg-icons"
+import {
+    sum,
+    zip,
+    uniq,
+    isNumber,
+    sortBy,
+    formatInlineList,
+} from "@ourworldindata/utils"
 import {
     TooltipTableProps,
     TooltipValueProps,
@@ -14,7 +21,7 @@ import {
 export const NO_DATA_COLOR = "#999"
 
 export class TooltipValue extends React.Component<TooltipValueProps> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { column, value, color, notice } = this.props,
             displayValue = isNumber(value)
                 ? column.formatValueShort(value)
@@ -22,13 +29,23 @@ export class TooltipValue extends React.Component<TooltipValueProps> {
             displayColor =
                 displayValue === NO_DATA_LABEL ? NO_DATA_COLOR : color
 
+        const { roundsToSignificantFigures } = column
+        const showSignificanceSuperscript =
+            this.props.showSignificanceSuperscript && roundsToSignificantFigures
+        const superscript = showSignificanceSuperscript ? (
+            <IconCircledS asSup={true} />
+        ) : null
+
         return (
             <Variable
                 column={column}
                 color={displayColor}
                 notice={notice ? [notice] : undefined}
             >
-                {displayValue}
+                <span>
+                    {displayValue}
+                    {superscript}
+                </span>
             </Variable>
         )
     }
@@ -41,7 +58,7 @@ export class TooltipValueRange extends React.Component<TooltipValueRangeProps> {
         right: "m19.59198,6.82422L13.22803.46021c-.39105-.39099-1.02405-.39099-1.414,0-.39105.39001-.39105,1.02405,0,1.414l4.65698,4.65704H.5v2h15.97101l-4.65698,4.65698c-.39105.39001-.39105,1.02399,0,1.414.38995.39099,1.02295.39099,1.414,0l6.36395-6.36401c.39001-.39001.39001-1.02399,0-1.414Z",
     }
 
-    arrowIcon(direction: "up" | "right" | "down"): JSX.Element {
+    arrowIcon(direction: "up" | "right" | "down"): React.ReactElement {
         return (
             <svg
                 className={classnames("arrow", direction)}
@@ -53,7 +70,7 @@ export class TooltipValueRange extends React.Component<TooltipValueRangeProps> {
         )
     }
 
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { column, values, color, notice } = this.props,
             [firstValue, lastValue] = values.map((v) =>
                 column.formatValueShort(v)
@@ -75,12 +92,27 @@ export class TooltipValueRange extends React.Component<TooltipValueRangeProps> {
                         ? this.arrowIcon("down")
                         : this.arrowIcon("right")
 
+        const { roundsToSignificantFigures } = column
+        const showSignificanceSuperscript =
+            this.props.showSignificanceSuperscript && roundsToSignificantFigures
+        const superscript = showSignificanceSuperscript ? (
+            <IconCircledS asSup={true} />
+        ) : null
+
         return values.length ? (
             <Variable column={column} color={color} notice={notice}>
                 <span className="range">
-                    <span className="term">{firstTerm}</span>
+                    <span className="term">
+                        {firstTerm}
+                        {!lastTerm && superscript}
+                    </span>
                     {trend}
-                    <span className="term">{lastTerm}</span>
+                    {lastTerm && (
+                        <span className="term">
+                            {lastTerm}
+                            {superscript}
+                        </span>
+                    )}
                 </span>
             </Variable>
         ) : null
@@ -93,7 +125,7 @@ class Variable extends React.Component<{
     notice?: (number | string | undefined)[]
     children?: React.ReactNode
 }> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { column, children, color, notice } = this.props
 
         if (column.isMissing || column.name === "time") return null
@@ -135,7 +167,7 @@ class Variable extends React.Component<{
 }
 
 export class TooltipTable extends React.Component<TooltipTableProps> {
-    render(): JSX.Element | null {
+    render(): React.ReactElement | null {
         const { columns, totals, rows } = this.props,
             focal = rows.some((row) => row.focused),
             swatched = rows.some((row) => row.swatch),
@@ -179,7 +211,7 @@ export class TooltipTable extends React.Component<TooltipTableProps> {
                             swatch = "transparent",
                         } = row
                         const [_m, seriesName, seriesParenthetical] =
-                            name.match(/^(.*?)(\([^()]*\))?$/) ?? []
+                            name.trim().match(/^(.*?)(\([^()]*\))?$/) ?? []
 
                         return (
                             <tr
@@ -262,4 +294,38 @@ export class TooltipTable extends React.Component<TooltipTableProps> {
             </table>
         )
     }
+}
+
+export function IconCircledS({
+    asSup = false,
+}: {
+    asSup?: boolean
+}): React.ReactElement {
+    return (
+        <div
+            className={classnames("icon-circled-s", {
+                "as-superscript": asSup,
+            })}
+        >
+            <div className="circle" />
+            <FontAwesomeIcon icon={faS} />
+        </div>
+    )
+}
+
+export function makeTooltipToleranceNotice(targetYear: string): string {
+    return `Data not available for ${targetYear}. Showing closest available data point instead`
+}
+
+export function makeTooltipRoundingNotice(
+    numSignificantFigures: number[],
+    { plural }: { plural: boolean } = { plural: true }
+): string {
+    const uniqueNumSigFigs = uniq(numSignificantFigures)
+    const formattedNumSigFigs = formatInlineList(sortBy(uniqueNumSigFigs), "or")
+
+    const values = plural ? "Values" : "Value"
+    const are = plural ? "are" : "is"
+    const figures = formattedNumSigFigs === "1" ? "figure" : "figures"
+    return `${values} ${are} rounded to ${formattedNumSigFigs} significant ${figures}`
 }

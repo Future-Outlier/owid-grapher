@@ -4,10 +4,10 @@ import { faCheck } from "@fortawesome/free-solid-svg-icons"
 
 export class Checkbox extends React.Component<{
     checked: boolean
-    onChange: () => any
-    label: string | React.ReactNode
+    onChange: React.ChangeEventHandler<HTMLInputElement>
+    label: React.ReactNode
 }> {
-    render(): JSX.Element {
+    render(): React.ReactElement {
         const { checked, onChange, label } = this.props
 
         return (

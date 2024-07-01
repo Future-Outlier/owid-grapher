@@ -13,6 +13,7 @@ import {
     PostReference,
     ChartRedirect,
     DimensionProperty,
+    Json,
 } from "@ourworldindata/utils"
 import { computed, observable, runInAction, when } from "mobx"
 import { BAKED_GRAPHER_URL } from "../settings/clientSettings.js"
@@ -39,7 +40,7 @@ export interface Dataset {
 export interface Log {
     userId: number
     userName: string
-    config: string
+    config: Json
     createdAt: string
 }
 
@@ -132,9 +133,9 @@ export class ChartEditor {
     constructor(props: { manager: ChartEditorManager }) {
         this.manager = props.manager
         this.previewMode =
-            localStorage.getItem("editorPreviewMode") === "desktop"
-                ? "desktop"
-                : "mobile"
+            localStorage.getItem("editorPreviewMode") === "mobile"
+                ? "mobile"
+                : "desktop"
         when(
             () => this.grapher.isReady,
             () => (this.savedGrapherJson = JSON.stringify(this.grapher.object))
@@ -222,11 +223,6 @@ export class ChartEditor {
 
         if (!currentGrapherObject.slug)
             currentGrapherObject.slug = grapher.displaySlug
-
-        // We need to save availableEntities for Algolia search. Todo: remove.
-        const availableEntities = grapher.table.availableEntityNames
-        if (availableEntities.length)
-            (currentGrapherObject as any).data = { availableEntities }
 
         const targetUrl = isNewGrapher
             ? "/api/charts"
