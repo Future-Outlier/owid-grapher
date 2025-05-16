@@ -8,11 +8,7 @@ import { glob } from "glob"
 import { keyBy, without, mapValues, pick } from "lodash-es"
 import ProgressBar from "progress"
 import * as db from "../db/db.js"
-import {
-    BLOG_POSTS_PER_PAGE,
-    BASE_DIR,
-    GDOCS_DETAILS_ON_DEMAND_ID,
-} from "../settings/serverSettings.js"
+import { BLOG_POSTS_PER_PAGE, BASE_DIR } from "../settings/serverSettings.js"
 
 import {
     renderFrontPage,
@@ -54,7 +50,7 @@ import {
     grabMetadataForGdocLinkedIndicator,
     TombstonePageData,
     gdocUrlRegex,
-    ChartViewInfo,
+    NarrativeChartInfo,
 } from "@ourworldindata/utils"
 import { execWrapper } from "../db/execWrapper.js"
 import { countryProfileSpecs } from "../site/countryProfileProjects.js"
@@ -72,7 +68,6 @@ import {
     getPostsFromSnapshots,
     postsFlushCache,
 } from "../db/model/Post.js"
-import { GdocPost } from "../db/model/Gdoc/GdocPost.js"
 import { getAllImages } from "../db/model/Image.js"
 import { generateEmbedSnippet } from "../site/viteUtils.js"
 import { logErrorAndMaybeCaptureInSentry } from "../serverUtils/errorLog.js"
@@ -99,9 +94,10 @@ import { getTombstones } from "../db/model/GdocTombstone.js"
 import { bakeAllMultiDimDataPages } from "./MultiDimBaker.js"
 import { getAllLinkedPublishedMultiDimDataPages } from "../db/model/MultiDimDataPage.js"
 import { getPublicDonorNames } from "../db/model/Donor.js"
-import { getChartViewsInfo } from "../db/model/ChartView.js"
+import { getNarrativeChartsInfo } from "../db/model/NarrativeChart.js"
 import { getGrapherRedirectsMap } from "./redirectsFromDb.js"
 import * as R from "remeda"
+import { getDods, getParsedDodsDictionary } from "../db/model/Dod.js"
 
 type PrefetchedAttachments = {
     donors: string[]
@@ -113,7 +109,7 @@ type PrefetchedAttachments = {
         explorers: Record<string, LinkedChart>
     }
     linkedIndicators: Record<number, LinkedIndicator>
-    linkedChartViews: Record<string, ChartViewInfo>
+    linkedNarrativeCharts: Record<string, NarrativeChartInfo>
 }
 
 // These aren't all "wordpress" steps
@@ -404,10 +400,12 @@ export class SiteBaker {
             const publishedAuthors = await getMinimalAuthors(knex)
             console.log(`✅ Prefetched ${publishedAuthors.length} authors`)
 
-            console.log("Prefetching chart views")
-            const chartViewsInfo = await getChartViewsInfo(knex)
-            const chartViewsInfoByName = keyBy(chartViewsInfo, "name")
-            console.log(`✅ Prefetched ${chartViewsInfo.length} chart views`)
+            console.log("Prefetching narrative charts")
+            const narrativeChartsInfo = await getNarrativeChartsInfo(knex)
+            const narrativeChartsInfoByName = keyBy(narrativeChartsInfo, "name")
+            console.log(
+                `✅ Prefetched ${narrativeChartsInfo.length} narrative charts`
+            )
 
             const prefetchedAttachments = {
                 donors,
@@ -419,7 +417,7 @@ export class SiteBaker {
                     graphers: publishedChartsBySlug,
                 },
                 linkedIndicators: datapageIndicatorsById,
-                linkedChartViews: chartViewsInfoByName,
+                linkedNarrativeCharts: narrativeChartsInfoByName,
             }
             this._prefetchedAttachmentsCache = prefetchedAttachments
         }
@@ -430,7 +428,7 @@ export class SiteBaker {
                 imageFilenames,
                 linkedGrapherSlugs,
                 linkedExplorerSlugs,
-                linkedChartViewNames,
+                linkedNarrativeChartNames,
             ] = picks
             const linkedDocuments = pick(
                 this._prefetchedAttachmentsCache.linkedDocuments,
@@ -479,9 +477,9 @@ export class SiteBaker {
                     this._prefetchedAttachmentsCache.linkedAuthors.filter(
                         (author) => authorNames.includes(author.name)
                     ),
-                linkedChartViews: pick(
-                    this._prefetchedAttachmentsCache.linkedChartViews,
-                    linkedChartViewNames
+                linkedNarrativeCharts: pick(
+                    this._prefetchedAttachmentsCache.linkedNarrativeCharts,
+                    linkedNarrativeChartNames
                 ),
             }
         }
@@ -576,7 +574,7 @@ export class SiteBaker {
                 publishedGdoc.linkedImageFilenames,
                 publishedGdoc.linkedChartSlugs.grapher,
                 publishedGdoc.linkedChartSlugs.explorer,
-                publishedGdoc.linkedChartViewNames,
+                publishedGdoc.linkedNarrativeChartNames,
             ])
             publishedGdoc.donors = attachments.donors
             publishedGdoc.linkedAuthors = attachments.linkedAuthors
@@ -587,7 +585,8 @@ export class SiteBaker {
                 ...attachments.linkedCharts.explorers,
             }
             publishedGdoc.linkedIndicators = attachments.linkedIndicators
-            publishedGdoc.linkedChartViews = attachments.linkedChartViews
+            publishedGdoc.linkedNarrativeCharts =
+                attachments.linkedNarrativeCharts
 
             if (
                 !publishedGdoc.manualBreadcrumbs?.length &&
@@ -722,21 +721,10 @@ export class SiteBaker {
     ) {
         if (!this.bakeSteps.has("dods") || !this.bakeSteps.has("charts")) return
         console.log("Validating grapher DoDs")
-        if (!GDOCS_DETAILS_ON_DEMAND_ID) {
-            console.error(
-                "GDOCS_DETAILS_ON_DEMAND_ID not set. Unable to validate dods."
-            )
-            return
-        }
 
-        const { details } = await GdocPost.getDetailsOnDemandGdoc(knex)
-
-        if (!details) {
-            console.log(
-                "No details on demand exist. Skipping grapher dod validation step."
-            )
-            return
-        }
+        const details = await getDods(knex).then((dods) =>
+            R.indexBy(dods, (dod) => dod.name)
+        )
 
         const charts: { slug: string; subtitle: string; note: string }[] =
             await db.knexRaw<{ slug: string; subtitle: string; note: string }>(
@@ -787,33 +775,13 @@ export class SiteBaker {
     private async bakeDetailsOnDemand(knex: db.KnexReadonlyTransaction) {
         if (!this.bakeSteps.has("dods")) return
         this.progressBar.tick({ name: "Baking dods.json" })
-        if (!GDOCS_DETAILS_ON_DEMAND_ID) {
-            console.error(
-                "GDOCS_DETAILS_ON_DEMAND_ID not set. Unable to bake dods."
-            )
-            return
-        }
 
-        const { details, parseErrors } =
-            await GdocPost.getDetailsOnDemandGdoc(knex)
-        if (parseErrors.length) {
-            await logErrorAndMaybeCaptureInSentry(
-                new Error(
-                    `Error(s) baking details: ${parseErrors
-                        .map((e) => e.message)
-                        .join(", ")}`
-                )
-            )
-        }
+        const parsedDods = await getParsedDodsDictionary(knex)
 
-        if (details) {
-            await this.stageWrite(
-                `${this.bakedSiteDir}/dods.json`,
-                JSON.stringify(details)
-            )
-        } else {
-            throw Error("Details on demand not found")
-        }
+        await this.stageWrite(
+            `${this.bakedSiteDir}/dods.json`,
+            JSON.stringify(parsedDods)
+        )
     }
 
     private async bakeDataInsights(knex: db.KnexReadonlyTransaction) {
@@ -833,7 +801,7 @@ export class SiteBaker {
                 dataInsight.linkedImageFilenames,
                 dataInsight.linkedChartSlugs.grapher,
                 dataInsight.linkedChartSlugs.explorer,
-                dataInsight.linkedChartViewNames,
+                dataInsight.linkedNarrativeChartNames,
             ])
             dataInsight.linkedDocuments = attachments.linkedDocuments
             dataInsight.imageMetadata = {
@@ -899,7 +867,7 @@ export class SiteBaker {
                 publishedAuthor.linkedImageFilenames,
                 publishedAuthor.linkedChartSlugs.grapher,
                 publishedAuthor.linkedChartSlugs.explorer,
-                publishedAuthor.linkedChartViewNames,
+                publishedAuthor.linkedNarrativeChartNames,
             ])
 
             // We don't need these to be attached to the gdoc in the current

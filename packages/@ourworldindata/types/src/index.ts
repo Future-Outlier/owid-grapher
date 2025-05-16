@@ -7,6 +7,21 @@ export {
 } from "./DonationTypes.js"
 
 export {
+    DodLinksTableName,
+    type DbInsertDodLink,
+    type DbPlainDodLink,
+} from "./dbTypes/DodLinks.js"
+
+export {
+    DodsTableName,
+    type DbInsertDod,
+    type DbPlainDod,
+    type DodUsageRecord,
+    DodUsageTypes,
+    type DodUsageType,
+} from "./dbTypes/Dods.js"
+
+export {
     type Base64String,
     type GitCommit,
     type HexString,
@@ -139,6 +154,9 @@ export {
     type TagGraphRoot,
     type DbInsertTagGraphNode,
     type DbPlainTagGraphNode,
+    type DbPlainContentGraphLink,
+    type DbInsertContentGraphLink,
+    ContentGraphLinkType,
 } from "./domainTypes/ContentGraph.js"
 export {
     WP_BlockClass,
@@ -319,7 +337,6 @@ export {
     type OwidGdocHomepageMetadata,
     DATA_INSIGHTS_INDEX_PAGE_SIZE,
     type OwidGdoc,
-    type RawDetail,
     OwidGdocType,
     type OwidGdocStickyNavItem,
     type OwidGdocJSON,
@@ -332,13 +349,12 @@ export {
     type LatestDataInsight,
     type LinkedAuthor,
     type LinkedChart,
-    OwidGdocLinkType,
     type LinkedIndicator,
     DYNAMIC_COLLECTION_PAGE_CONTAINER_ID,
     type OwidGdocContent,
     type OwidGdocIndexItem,
     extractGdocIndexItem,
-    type ChartViewInfo,
+    type NarrativeChartInfo,
     type OwidGdocDataInsightIndexItem,
 } from "./gdocTypes/Gdoc.js"
 
@@ -505,12 +521,12 @@ export {
     type DbChartTagJoin,
 } from "./dbTypes/ChartTags.js"
 export {
-    type DbPlainChartView,
-    type DbInsertChartView,
-    ChartViewsTableName,
-    CHART_VIEW_PROPS_TO_PERSIST,
-    CHART_VIEW_PROPS_TO_OMIT,
-} from "./dbTypes/ChartViews.js"
+    type DbPlainNarrativeChart,
+    type DbInsertNarrativeChart,
+    NarrativeChartsTableName,
+    NARRATIVE_CHART_PROPS_TO_PERSIST,
+    NARRATIVE_CHART_PROPS_TO_OMIT,
+} from "./dbTypes/NarrativeCharts.js"
 export {
     ChartsXEntitiesTableName,
     type DbInsertChartXEntity,
