@@ -1295,7 +1295,7 @@ export function extractGdocPageData<T extends OwidGdoc>(gdoc: T) {
         "linkedAuthors",
         "linkedDocuments",
         "linkedCharts",
-        "linkedChartViews",
+        "linkedNarrativeCharts",
         "linkedIndicators",
         "imageMetadata",
         "relatedCharts",
@@ -2092,6 +2092,13 @@ export function getParentVariableIdFromChartConfig(
     if (yVariableIds.length !== 1) return undefined
 
     return yVariableIds[0]
+}
+
+export function extractLinksFromMarkdown(markdown: string): [string, string][] {
+    return [...markdown.matchAll(/\[(.*?)\]\((.*?)\)/g)].map((match) => [
+        match[1],
+        match[2],
+    ])
 }
 
 // Page numbers are 0-indexed - you'll have to +1 to them when rendering

@@ -9,13 +9,13 @@ import {
     getVariableAnnotations,
 } from "./apiRoutes/bulkUpdates.js"
 import {
-    getChartViews,
-    getChartViewById,
-    createChartView,
-    updateChartView,
-    deleteChartView,
-    getChartViewReferences,
-} from "./apiRoutes/chartViews.js"
+    getNarrativeCharts,
+    getNarrativeChartById,
+    createNarrativeChart,
+    updateNarrativeChart,
+    deleteNarrativeChart,
+    getNarrativeChartReferences,
+} from "./apiRoutes/narrativeCharts.js"
 import {
     getDatasets,
     getDataset,
@@ -150,6 +150,14 @@ import {
     fetchFeaturedMetrics,
     rerankFeaturedMetrics,
 } from "./apiRoutes/featuredMetrics.js"
+import {
+    getDods,
+    updateDod,
+    createDod,
+    deleteDod,
+    getDodsUsage,
+    getParsedDods,
+} from "./apiRoutes/dods.js"
 
 const apiRouter = new FunctionalRouter()
 
@@ -223,20 +231,28 @@ postRouteWithRWTransaction(
 putRouteWithRWTransaction(apiRouter, "/charts/:chartId", updateChart)
 deleteRouteWithRWTransaction(apiRouter, "/charts/:chartId", deleteChart)
 
-// Chart view routes
-getRouteWithROTransaction(apiRouter, "/chartViews", getChartViews)
+// Narrative chart routes
+getRouteWithROTransaction(apiRouter, "/narrative-charts", getNarrativeCharts)
 getRouteWithROTransaction(
     apiRouter,
-    "/chartViews/:id.config.json",
-    getChartViewById
+    "/narrative-charts/:id.config.json",
+    getNarrativeChartById
 )
-postRouteWithRWTransaction(apiRouter, "/chartViews", createChartView)
-putRouteWithRWTransaction(apiRouter, "/chartViews/:id", updateChartView)
-deleteRouteWithRWTransaction(apiRouter, "/chartViews/:id", deleteChartView)
+postRouteWithRWTransaction(apiRouter, "/narrative-charts", createNarrativeChart)
+putRouteWithRWTransaction(
+    apiRouter,
+    "/narrative-charts/:id",
+    updateNarrativeChart
+)
+deleteRouteWithRWTransaction(
+    apiRouter,
+    "/narrative-charts/:id",
+    deleteNarrativeChart
+)
 getRouteWithROTransaction(
     apiRouter,
-    "/chartViews/:id.references.json",
-    getChartViewReferences
+    "/narrative-charts/:id.references.json",
+    getNarrativeChartReferences
 )
 
 // Dataset routes
@@ -254,6 +270,13 @@ postRouteWithRWTransaction(
     "/datasets/:datasetId/charts",
     republishCharts
 )
+
+deleteRouteWithRWTransaction(apiRouter, "/dods/:id", deleteDod)
+getRouteWithROTransaction(apiRouter, "/dods.json", getDods)
+getRouteWithROTransaction(apiRouter, "/parsed-dods.json", getParsedDods)
+getRouteWithROTransaction(apiRouter, "/dods-usage.json", getDodsUsage)
+patchRouteWithRWTransaction(apiRouter, "/dods/:id", updateDod)
+postRouteWithRWTransaction(apiRouter, "/dods", createDod)
 
 // explorer routes
 postRouteWithRWTransaction(apiRouter, "/explorer/:slug/tags", addExplorerTags)

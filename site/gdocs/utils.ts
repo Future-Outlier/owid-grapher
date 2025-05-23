@@ -12,7 +12,7 @@ import {
     OwidGdocMinimalPostInterface,
     LinkedIndicator,
     OwidGdocDataInsightContent,
-    OwidGdocLinkType,
+    ContentGraphLinkType,
     SubNavId,
     OwidGdocDataInsightInterface,
     OwidGdocPostInterface,
@@ -74,7 +74,7 @@ export const useLinkedDocument = (
     let errorMessage: string | undefined = undefined
     let linkedDocument: OwidGdocMinimalPostInterface | undefined = undefined
     const linkType = getLinkType(url)
-    if (linkType !== OwidGdocLinkType.Gdoc) {
+    if (linkType !== ContentGraphLinkType.Gdoc) {
         return { linkedDocument }
     }
 
@@ -158,9 +158,9 @@ export function useDonors(): string[] | undefined {
     return donors
 }
 
-export const useLinkedChartView = (name: string) => {
-    const { linkedChartViews } = useContext(AttachmentsContext)
-    return linkedChartViews?.[name]
+export const useLinkedNarrativeChart = (name: string) => {
+    const { linkedNarrativeCharts } = useContext(AttachmentsContext)
+    return linkedNarrativeCharts?.[name]
 }
 
 export function getShortPageCitation(

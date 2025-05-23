@@ -99,6 +99,7 @@ export {
     traverseEnrichedBlock,
     checkNodeIsSpan,
     checkNodeIsSpanLink,
+    extractLinksFromMarkdown,
     getPaginationPageNumbers,
     spansToUnformattedPlainText,
     checkIsOwidGdocType,
@@ -251,6 +252,7 @@ export {
     type Aggregate,
     getOthers,
     countriesByName,
+    incomeGroupsByName,
     getRegionAlternativeNames,
 } from "./regions.js"
 

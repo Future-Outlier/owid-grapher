@@ -64,14 +64,14 @@ Asset maps are what's being used in code to know how to resolve an asset, for ex
 
 Obviously, we only want to re-archive a page when its content has been changed in some way - and we also want detecting these changes to be as quick as possible.
 
-We only **consider a grapher page changed** when one of these things happen:
+We only **consider a grapher page changed** when one of these things happens:
 
 - Its grapher config checksum has been updated (DB: `chart_configs.fullMd5`)
 - At least one of its variables has been updated in some way (DB: `variables.dataChecksum` & `variables.metadataChecksum`)
 
-Every time the `archiveChangedGrapherPages` script is run, we fetch these checksums for each published grapher chart, and generate a `hashOfInputs` hash, which combined all of these hashes for each grapher page.
+Every time the `archiveChangedGrapherPages` script is run, we fetch these checksums for each published grapher chart, and generate a `hashOfInputs` hash. This hash combines all of these hashes for each grapher page.
 We then match these with the `archived_chart_versions` DB table, and find any hashes that are not present in that table yet.
-These grapher pages are then gonna be the ones we're going to re-archive.
+These grapher pages are then the ones that will be re-archived.
 
 The `archiveChangedGrapherPages` then takes care of re-archiving only the grapher pages that have changed since the last archival run.
 
@@ -90,7 +90,21 @@ There are two env variables relevant to archiving:
 ## Staging servers
 
 > [!NOTE]  
-> At the time of writing this, staging servers are still a work-in-progress effort.
+> The links in this section lead to a private repo, and are only accessible to the OWID team.
+
+A staging server automatically creates and serves an archive, on port 8789.
+This works as follows:
+
+1. As part of the staging server build, [the `create-archive.sh` script](https://github.com/owid/ops/blob/cc00c3a4d91a5895e4a48bde51153f65bd0b9049/templates/owid-site-staging/create-archive.sh) is run.
+2. It first truncates / empties the `archived_chart_versions` table.
+    - This is done so we only link to archived pages for the few charts for which we actually create an archived version, see below.
+3. It then runs Vite to build the JS assets needed for the archive.
+4. Next, it runs the `yarn buildArchive` command _for just [a few, specified chart IDs](https://github.com/owid/ops/blob/cc00c3a4d91a5895e4a48bde51153f65bd0b9049/templates/owid-site-staging/create-archive.sh#L9)_.
+    - This is done to keep the staging server build time down.
+    - These charts include one data page and one grapher page.
+5. We run step (4) again once more, so we have a second copy of the archived pages, and can test both backward and forward navigation.
+6. Lastly, after the staging server build is completed, we [serve the archive on port 8789](https://github.com/owid/ops/blob/cc00c3a4d91a5895e4a48bde51153f65bd0b9049/templates/owid-site-staging/serve-archive.sh).
+    - We also link to archived pages from the auto-generated comment that `owidbot` puts on the PR.
 
 ## Providing citations
 
@@ -117,6 +131,12 @@ Aside from the behind-the-scenes changes, like how variables and other files are
     - No dynamic social media preview image
 - A changed footer, with fewer options than the live footer.
 
-## Append-only nature of the archive
+## Deployment
+
+The archive is built as part of every `deploy-content` step in Buildkite. This is done by running [the `deploy-archive` script](https://github.com/owid/owid-grapher/blob/f939ba985e4159f1dcd98d33802aae78a0c7b8a3/ops/buildkite/deploy-archive).
+It runs Vite to build the JS assets, and then runs the `yarn buildArchive` command to create the archive.
+After that, it sends the changed archive files to R2 (bucket `owid-archive`) using `rclone`.
+
+### Append-only nature of the archive
 
 Overall, the archive is essentially append-only. We don't delete any archived pages, any archived versions of a page, or any assets or variables that were ever created as part of an archive. This is important for the integrity of the archive, for the integrity of past citations, and to ensure that the JS code of past archived pages keeps working.
