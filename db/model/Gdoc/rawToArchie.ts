@@ -50,6 +50,7 @@ import {
     RawBlockNarrativeChart,
     RawBlockCode,
     RawBlockCookieNotice,
+    RawBlockExpander,
 } from "@ourworldindata/types"
 import { isArray } from "@ourworldindata/utils"
 import { match } from "ts-pattern"
@@ -334,11 +335,14 @@ function* rawBlockRecircToArchieMLString(
     yield "{.recirc}"
     if (block.value) {
         yield* propertyToArchieMLString("title", block.value)
+        yield* propertyToArchieMLString("align", block.value)
         const links = block.value.links
         if (links) {
             yield "[.links]"
             for (const link of links) {
                 yield* propertyToArchieMLString("url", link)
+                yield* propertyToArchieMLString("title", link)
+                yield* propertyToArchieMLString("subtitle", link)
             }
             yield "[]"
         }
@@ -514,6 +518,23 @@ function* RawBlockExpandableParagraphToArchieMLString(
             yield* OwidRawGdocBlockToArchieMLStringGenerator(b)
     }
     yield "[]"
+}
+
+function* rawBlockExpanderToArchieMLString(
+    block: RawBlockExpander
+): Generator<string, void, undefined> {
+    yield "{.expander}"
+    yield* propertyToArchieMLString("title", block.value)
+    yield* propertyToArchieMLString("subtitle", block.value)
+    yield* propertyToArchieMLString("heading", block.value)
+    yield "[.+content]"
+    if (block.value.content) {
+        for (const b of block.value.content) {
+            yield* OwidRawGdocBlockToArchieMLStringGenerator(b)
+        }
+    }
+    yield "[]"
+    yield "{}"
 }
 
 function* rawBlockAllChartsToArchieMLString(
@@ -873,6 +894,7 @@ export function* OwidRawGdocBlockToArchieMLStringGenerator(
         .with({ type: "all-charts" }, rawBlockAllChartsToArchieMLString)
         .with({ type: "aside" }, rawBlockAsideToArchieMLString)
         .with({ type: "chart" }, rawBlockChartToArchieMLString)
+        .with({ type: "expander" }, rawBlockExpanderToArchieMLString)
         .with(
             { type: "narrative-chart" },
             rawBlockNarrativeChartToArchieMLString

@@ -51,9 +51,12 @@ import {
     RawBlockNarrativeChart,
     RawBlockCode,
     RawBlockCookieNotice,
+    RawBlockExpander,
+    EnrichedRecircLink,
 } from "@ourworldindata/types"
 import { spanToHtmlString } from "./gdocUtils.js"
 import { match, P } from "ts-pattern"
+import { pickBy } from "remeda"
 
 function spansToHtmlText(spans: Span[]): string {
     return spans.map(spanToHtmlString).join("")
@@ -283,12 +286,20 @@ export function enrichedBlockToRawBlock(
             (b): RawBlockRecirc => ({
                 type: b.type,
                 value: {
-                    title: spansToHtmlText([b.title]),
-                    links: b.links.map(
-                        (link): RawRecircLink => ({
-                            url: link.url!,
+                    title: b.title,
+                    align: b.align,
+                    links: b.links.map((link): RawRecircLink => {
+                        return pickBy(link, (value, key) => {
+                            const keys: Array<keyof EnrichedRecircLink> = [
+                                "title",
+                                "subtitle",
+                                "url",
+                            ] as const
+                            // These keys are optional, so we only want to serialize
+                            // them if they're actually there
+                            return !!value && keys.includes(key)
                         })
-                    ),
+                    }),
                 },
             })
         )
@@ -404,6 +415,18 @@ export function enrichedBlockToRawBlock(
             (b): RawBlockExpandableParagraph => ({
                 type: b.type,
                 value: b.items.map(enrichedBlockToRawBlock),
+            })
+        )
+        .with(
+            { type: "expander" },
+            (b): RawBlockExpander => ({
+                type: b.type,
+                value: {
+                    title: b.title,
+                    heading: b.heading,
+                    subtitle: b.subtitle,
+                    content: b.content.map(enrichedBlockToRawBlock),
+                },
             })
         )
         .with(

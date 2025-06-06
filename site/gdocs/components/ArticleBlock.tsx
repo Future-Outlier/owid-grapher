@@ -46,6 +46,7 @@ import { Socials } from "./Socials.js"
 import Person from "./Person.js"
 import NarrativeChart from "./NarrativeChart.js"
 import { Container, getLayout } from "./layout.js"
+import { Expander } from "./Expander.js"
 
 function ArticleBlockInternal({
     b: block,
@@ -72,21 +73,20 @@ function ArticleBlockInternal({
     }
     return match(block)
         .with({ type: "aside" }, ({ caption, position = "right" }) => (
-            <figure
+            <aside
                 className={cx(
                     "body-3-medium-italic",
-                    getLayout(`aside-${position}`)
+                    "article-block__aside",
+                    getLayout(`aside--${position}`)
                 )}
             >
                 {caption ? (
-                    <figcaption>
-                        <SpanElements
-                            spans={caption}
-                            shouldRenderLinks={shouldRenderLinks}
-                        />
-                    </figcaption>
+                    <SpanElements
+                        spans={caption}
+                        shouldRenderLinks={shouldRenderLinks}
+                    />
                 ) : null}
-            </figure>
+            </aside>
         ))
         .with({ type: "all-charts" }, (block) => (
             <AllCharts
@@ -208,7 +208,10 @@ function ArticleBlockInternal({
             />
         ))
         .with({ type: "recirc" }, (block) => (
-            <Recirc className={getLayout("recirc", containerType)} d={block} />
+            <Recirc
+                className={getLayout(`recirc--${block.align}`, containerType)}
+                d={block}
+            />
         ))
         .with({ type: "numbered-list" }, (block) => (
             <NumberedList
@@ -551,6 +554,18 @@ function ArticleBlockInternal({
                     <ArticleBlock key={i} b={item} />
                 ))}
             </ExpandableParagraph>
+        ))
+        .with({ type: "expander" }, (block) => (
+            <Expander
+                className={getLayout("expander", containerType)}
+                {...block}
+            >
+                <div className="expander__content">
+                    {block.content.map((item, i) => (
+                        <ArticleBlock key={i} b={item} />
+                    ))}
+                </div>
+            </Expander>
         ))
         .with({ type: "topic-page-intro" }, (block) => (
             <TopicPageIntro
