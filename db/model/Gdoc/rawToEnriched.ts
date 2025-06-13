@@ -135,6 +135,10 @@ import {
     RawBlockCookieNotice,
     PullQuoteAlignment,
     pullquoteAlignments,
+    RawBlockExpander,
+    EnrichedBlockExpander,
+    recircAlignments,
+    RecircAlignment,
 } from "@ourworldindata/types"
 import {
     traverseEnrichedSpan,
@@ -179,6 +183,7 @@ export function parseRawBlocksToEnrichedBlocks(
         .with({ type: "code" }, parseCode)
         .with({ type: "donors" }, parseDonorList)
         .with({ type: "scroller" }, parseScroller)
+        .with({ type: "expander" }, parseExpander)
         .with({ type: "chart-story" }, parseChartStory)
         .with({ type: "image" }, parseImage)
         .with({ type: "video" }, parseVideo)
@@ -762,7 +767,9 @@ const parseImage = (image: RawBlockImage): EnrichedBlockImage => {
     if (!booleanValidation.isValid) {
         return createError(booleanValidation)
     }
-    const hasOutline = image.value.hasOutline === "true"
+    const hasOutline = image.value.hasOutline
+        ? image.value.hasOutline === "true"
+        : true // Default to true if not specified
 
     return {
         type: "image",
@@ -1036,7 +1043,7 @@ const parsePullQuote = (raw: RawBlockPullQuote): EnrichedBlockPullQuote => {
 const parseRecirc = (raw: RawBlockRecirc): EnrichedBlockRecirc => {
     const createError = (
         error: ParseError,
-        title: SpanSimpleText = { spanType: "span-simple-text", text: "" },
+        title = "",
         links: EnrichedRecircLink[] = []
     ): EnrichedBlockRecirc => ({
         type: "recirc",
@@ -1051,36 +1058,80 @@ const parseRecirc = (raw: RawBlockRecirc): EnrichedBlockRecirc => {
         })
     }
 
-    if (!raw.value?.links || !raw.value?.links.length) {
+    if (!raw.value?.links?.length) {
         return createError({
             message: "Recirc must have at least one link",
         })
     }
 
-    const linkErrors: ParseError[] = []
+    const parseErrors: ParseError[] = []
+
+    const parsedLinks: EnrichedRecircLink[] = []
     for (const link of raw.value.links) {
         if (!link.url) {
-            linkErrors.push({
+            parseErrors.push({
                 message: "Recirc link missing url property",
             })
-        } else if (!Url.fromURL(link.url).isGoogleDoc) {
-            linkErrors.push({
-                message: "External urls are not supported in recirc blocks",
-                isWarning: true,
+            continue
+        }
+        const url = Url.fromURL(extractUrl(link.url))
+        if (url.isGoogleDoc || url.isGrapher || url.isExplorer) {
+            parsedLinks.push({
+                url: url.fullUrl,
+                title: link.title,
+                subtitle: link.subtitle,
+                type: "recirc-link",
+            })
+        } else {
+            if (!link.title) {
+                parseErrors.push({
+                    message: "External URLs must have a title",
+                    isWarning: true,
+                })
+                continue
+            }
+            parsedLinks.push({
+                url: url.fullUrl,
+                title: link.title,
+                subtitle: link.subtitle,
+                type: "recirc-link",
             })
         }
     }
 
-    const parsedTitle = htmlToSimpleTextBlock(raw.value.title)
+    const linkTypeCounts = R.countBy(parsedLinks, (link) => {
+        const url = Url.fromURL(link.url)
+        if (url.isGoogleDoc || url.isGrapher || url.isExplorer) {
+            return "internal"
+        } else {
+            return "external"
+        }
+    })
+
+    if (linkTypeCounts.internal && linkTypeCounts.external) {
+        parseErrors.push({
+            message:
+                "Internal (gdoc/grapher/explorer) and external links (URLs) can't be used together. Please use a separate recirc for each type",
+        })
+    }
+
+    if (
+        raw.value.align &&
+        !validateRawEnum(recircAlignments, raw.value.align)
+    ) {
+        parseErrors.push({
+            message: `If specified, recirc position must be one of ${recircAlignments.join(", ")}`,
+        })
+    }
+
+    const align = (raw.value.align as RecircAlignment) || "center"
 
     return {
         type: "recirc",
-        title: parsedTitle.value,
-        links: raw.value.links.map((link) => ({
-            type: "recirc-link",
-            url: link.url!,
-        })),
-        parseErrors: [...linkErrors],
+        title: raw.value.title,
+        links: parsedLinks,
+        align,
+        parseErrors,
     }
 }
 
@@ -1605,6 +1656,87 @@ function parseCookieNotice(_: RawBlockCookieNotice): EnrichedBlockCookieNotice {
     return {
         type: "cookie-notice",
         parseErrors: [],
+    }
+}
+
+function parseExpander(raw: RawBlockExpander): EnrichedBlockExpander {
+    const createError = (error: ParseError): EnrichedBlockExpander => ({
+        type: "expander",
+        parseErrors: [error],
+        title: "",
+        heading: "Additional information",
+        content: [],
+    })
+
+    if (!raw.value.title) {
+        return createError({
+            message: "Expander block is missing a title",
+        })
+    }
+    if (typeof raw.value.title !== "string") {
+        return createError({
+            message: "Expander block title must be a string",
+        })
+    }
+    if (raw.value.heading && typeof raw.value.heading !== "string") {
+        return createError({
+            message: "Expander block heading must be a string",
+        })
+    }
+    if (raw.value.subtitle && typeof raw.value.subtitle !== "string") {
+        return createError({
+            message: "Expander block subtitle must be a string",
+        })
+    }
+    const ALLOWED_EXPANDER_TYPES: OwidRawGdocBlock["type"][] = [
+        "text",
+        "list",
+        "numbered-list",
+        "heading",
+        "image",
+        "chart",
+        "table",
+        "html",
+    ]
+    const contentErrors: ParseError[] = []
+    const content = raw.value.content
+    if (!content) {
+        return createError({
+            message: "Expander block is missing content",
+        })
+    }
+    if (!isArray(content)) {
+        return createError({
+            message: "Expander block content must be an array",
+        })
+    }
+    if (content.length === 0) {
+        return createError({
+            message: "Expander block content must not be empty",
+        })
+    }
+    for (const block of content) {
+        if (!ALLOWED_EXPANDER_TYPES.includes(block.type)) {
+            contentErrors.push({
+                message: `Expander content can only contain ${ALLOWED_EXPANDER_TYPES.join(
+                    ", "
+                )} blocks`,
+            })
+        }
+    }
+
+    const enrichedContent = content.map(parseRawBlocksToEnrichedBlocks)
+    const parseErrors = enrichedContent
+        .flatMap((block) => block?.parseErrors)
+        .filter((b): b is ParseError => !!b)
+
+    return {
+        type: "expander",
+        title: raw.value.title,
+        heading: raw.value.heading,
+        subtitle: raw.value.subtitle,
+        content: excludeNullish(enrichedContent),
+        parseErrors: [...parseErrors, ...contentErrors],
     }
 }
 

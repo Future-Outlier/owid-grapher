@@ -1,6 +1,6 @@
 import * as React from "react"
 import { observer } from "mobx-react"
-import { computed, action, reaction } from "mobx"
+import { computed, action, reaction, when, IReactionDisposer } from "mobx"
 import cx from "classnames"
 import a from "indefinite"
 import {
@@ -108,6 +108,7 @@ export interface EntitySelectorManager {
     yColumnSlugs?: ColumnSlug[]
     entityRegionTypeGroups?: EntityRegionTypeGroup[]
     entityNamesByRegionType?: EntityNamesByRegionType
+    isReady?: boolean
     logEntitySelectorEvent: (
         action: EntitySelectorEvent,
         target?: string
@@ -217,25 +218,37 @@ export class EntitySelector extends React.Component<{
         order: SortOrder.asc,
     }
 
+    private disposers: IReactionDisposer[] = []
     componentDidMount(): void {
         void this.populateLocalEntities()
-        this.initSortConfig()
 
         if (this.props.autoFocus && !isTouchDevice())
             this.searchField.current?.focus()
 
         // scroll to the top when the search input changes
-        reaction(
-            () => this.searchInput,
-            () => {
-                if (this.scrollableContainer.current)
-                    this.scrollableContainer.current.scrollTop = 0
-            }
+        this.disposers.push(
+            reaction(
+                () => this.searchInput,
+                () => {
+                    if (this.scrollableContainer.current)
+                        this.scrollableContainer.current.scrollTop = 0
+                }
+            )
+        )
+
+        // the initial sorting strategy depends on data,
+        // which is why we wait for Grapher to be ready
+        this.disposers.push(
+            when(
+                () => !!this.manager.isReady,
+                () => this.initSortConfig()
+            )
         )
     }
 
     componentWillUnmount(): void {
         if (this.timeoutId) clearTimeout(this.timeoutId)
+        this.disposers.forEach((dispose) => dispose())
     }
 
     private set(newState: Partial<EntitySelectorState>): void {
@@ -878,7 +891,7 @@ export class EntitySelector extends React.Component<{
             this.scrollableContainer.current.scrollTop = 0
     }
 
-    @action.bound onSearchKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
+    @action.bound onSearchKeyDown(e: KeyboardEvent): void {
         const { searchResults } = this
         if (e.key === "Enter" && searchResults && searchResults.length > 0) {
             this.onChange(searchResults[0].name)
@@ -1078,6 +1091,7 @@ export class EntitySelector extends React.Component<{
                     onClear={() => this.clearSearchInput()}
                     placeholder={`Search for ${a(this.searchPlaceholderEntityType)}`}
                     trackNote="entity_selector_search"
+                    onKeyDown={this.onSearchKeyDown}
                 />
             </div>
         )

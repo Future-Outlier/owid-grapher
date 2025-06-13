@@ -9,7 +9,6 @@
         "batchTagWithGpt": "tsx --tsconfig tsconfig.tsx.json baker/batchTagWithGpt.ts",
         "buildArchive": "tsx --tsconfig tsconfig.tsx.json baker/archival/archiveChangedGrapherPages.ts",
         "buildLocalBake": "tsx --tsconfig tsconfig.tsx.json baker/buildLocalBake.ts",
-        "buildTsc": "tsc -b -verbose",
         "buildLerna": "lerna run build",
         "buildViteAdmin": "vite build --config vite.config-admin.mts",
         "buildViteArchive": "vite build --config vite.config-archive.mts",
@@ -233,7 +232,7 @@
         "http-server": "^14.1.1",
         "husky": "^9.0.11",
         "jsdom": "^26.1.0",
-        "lerna": "^8.2.1",
+        "lerna": "^8.2.2",
         "lint-staged": "^16.0.0",
         "polylabel": "^2.0.1",
         "prettier": "^3.5.0",
@@ -244,7 +243,7 @@
         "typescript-eslint": "^8.28.0",
         "vite": "^6.3.5",
         "vitest": "^3.2.0",
-        "wrangler": "^4.14.4"
+        "wrangler": "^4.19.2"
     },
     "resolutions": {
         "whatwg-url": "14.2.0"

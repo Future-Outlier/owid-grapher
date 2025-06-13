@@ -854,6 +854,11 @@ export class Grapher
                 ? params.tableFilter
                 : "all"
         }
+
+        // data table search
+        if (params.tableSearch) {
+            this.dataTableConfig.search = params.tableSearch
+        }
     }
 
     @action.bound private setTimeFromTimeQueryParam(time: string): void {
@@ -3363,7 +3368,7 @@ export class Grapher
     }
 
     private renderReady(): React.ReactElement | null {
-        if (!this.isReady || !this.hasBeenVisible) return null
+        if (!this.hasBeenVisible) return null
 
         if (this.renderToStatic) {
             return <StaticCaptionedChart manager={this} />
