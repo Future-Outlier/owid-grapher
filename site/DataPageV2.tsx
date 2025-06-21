@@ -33,7 +33,7 @@ import { SiteHeader } from "./SiteHeader.js"
 import { IFrameDetector } from "./IframeDetector.js"
 import { DebugProvider } from "./gdocs/DebugProvider.js"
 import { Html } from "./Html.js"
-import { ArchivedChartOrArchivePageMeta } from "@ourworldindata/types"
+import { ArchiveContext } from "@ourworldindata/types"
 import { DEFAULT_PAGE_DESCRIPTION } from "./dataPage.js"
 
 export const DataPageV2 = (props: {
@@ -45,7 +45,7 @@ export const DataPageV2 = (props: {
     faqEntries?: FaqEntryData
     imageMetadata: Record<string, ImageMetadata>
     tagToSlugMap: Record<string | number, string>
-    archivedChartInfo?: ArchivedChartOrArchivePageMeta
+    archivedChartInfo?: ArchiveContext
     dataApiUrl?: string
 }) => {
     const {
@@ -95,7 +95,6 @@ export const DataPageV2 = (props: {
         ...mergedGrapherConfig,
         bakedGrapherURL: BAKED_GRAPHER_URL,
         adminBaseUrl: ADMIN_BASE_URL,
-        dataApiUrl: DATA_API_URL,
     }
 
     // Only embed the tags that are actually used by the datapage, instead of the complete JSON object with ~240 properties

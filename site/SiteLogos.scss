@@ -2,7 +2,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    @include column-gap(24px);
     flex-shrink: 0;
 
     .logo-owid a {
@@ -23,6 +22,7 @@
         @include column-gap(6px);
         align-items: flex-start;
         margin-top: 5px;
+        margin-left: 24px;
 
         a {
             color: white;

@@ -9,7 +9,7 @@ import "./owid.scss"
 // from a very large icon down to a properly sized one a moment later."
 import "@fortawesome/fontawesome-svg-core/styles.css"
 
-import { runSearchPage } from "./search/runSearchPage.js"
+import { DEPRECATEDrunSearchPage } from "./search/_DEPRECATEDrunSearchPage.js"
 import { runNotFoundPage } from "./NotFoundPageMain.js"
 import { runFeedbackPage } from "./Feedback.js"
 import { runDonateForm } from "./runDonateForm.js"
@@ -17,7 +17,11 @@ import { runCountryProfilePage } from "./runCountryProfilePage.js"
 import { runTableOfContents } from "./runTableOfContents.js"
 import { Explorer } from "@ourworldindata/explorer"
 import { ENV, ADMIN_BASE_URL } from "../settings/clientSettings.js"
-import { Grapher, CookieKey } from "@ourworldindata/grapher"
+import {
+    Grapher,
+    CookieKey,
+    renderSingleGrapherOnGrapherPage,
+} from "@ourworldindata/grapher"
 import { MultiEmbedderSingleton } from "../site/multiembedder/MultiEmbedder.js"
 import { CoreTable } from "@ourworldindata/core-table"
 import { SiteAnalytics } from "./SiteAnalytics.js"
@@ -28,12 +32,13 @@ declare let window: any
 window.Grapher = Grapher
 window.Explorer = Explorer
 window.CoreTable = CoreTable
-window.runSearchPage = runSearchPage
+window.DEPRECATEDrunSearchPage = DEPRECATEDrunSearchPage
 window.runNotFoundPage = runNotFoundPage
 window.runFeedbackPage = runFeedbackPage
 window.runDonateForm = runDonateForm
 window.runCountryProfilePage = runCountryProfilePage
 window.runTableOfContents = runTableOfContents
+window.renderSingleGrapherOnGrapherPage = renderSingleGrapherOnGrapherPage
 window.MultiEmbedderSingleton = MultiEmbedderSingleton
 
 // Note: do a text search of the project for "runSiteFooterScripts" to find the usage. todo: clean that up.

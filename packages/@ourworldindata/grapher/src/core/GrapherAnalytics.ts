@@ -18,6 +18,7 @@ export enum EventCategory {
     GrapherError = "owid.grapher_error",
     GrapherEntitySelector = "owid.grapher_entity_selector",
     ExplorerView = "owid.explorer_view",
+    Expander = "owid.expander",
     ExplorerCountrySelector = "owid.explorer_country_selector",
     Hover = "owid.hover",
     KeyboardShortcut = "owid.keyboard_shortcut",
@@ -26,6 +27,7 @@ export enum EventCategory {
     SiteSearchClick = "owid.site_search_click",
     SiteSearchFilterClick = "owid.site_search_filter_click",
     SiteInstantSearchClick = "owid.site_instantsearch_click",
+    SiteSearchAutocompleteClick = "owid.site_search_autocomplete_click",
     SiteFormSubmit = "owid.site_form_submit",
     DetailOnDemand = "owid.detail_on_demand",
     DataCatalogSearch = "owid.data_catalog_search",
@@ -72,6 +74,13 @@ interface GAEvent {
     narrativeChartName?: string // specifies the name of a narrative chart
     explorerPath?: string
     explorerView?: string
+    autocompleteQuery?: string
+    autocompletePosition?: number
+    autocompleteFilterType?: string
+    autocompleteFilterName?: string
+    autocompleteSuggestions?: string
+    autocompleteSuggestionsTypes?: string
+    autocompleteSuggestionsCount?: number
 }
 
 // taken from https://github.com/DefinitelyTyped/DefinitelyTyped/blob/de66435d18fbdb2684947d16b5cd3a77f876324c/types/gtag.js/index.d.ts#L151-L156
@@ -230,7 +239,6 @@ export class GrapherAnalytics {
     startClickTracking(): void {
         // we use a data-track-note attr on elements to indicate that clicks on them should be tracked, and what to send
         const dataTrackAttr = "data-track-note"
-
         // we set a data-grapher-url attr on grapher charts to indicate the URL of the chart.
         // this is helpful for tracking clicks on charts that are embedded in articles, where we would like to know
         // which chart the user is interacting with
@@ -244,11 +252,9 @@ export class GrapherAnalytics {
                     (el: HTMLElement) => el.getAttribute(dataTrackAttr) !== null
                 )
                 if (!trackedElement) return
-
                 const grapherUrlRaw = trackedElement
                     .closest(`[${dataGrapherUrlAttr}]`)
                     ?.getAttribute(dataGrapherUrlAttr)
-
                 if (grapherUrlRaw) {
                     let grapherUrlObj:
                         | {
@@ -261,7 +267,6 @@ export class GrapherAnalytics {
                     } catch (e) {
                         console.warn("failed to parse grapherUrl", e)
                     }
-
                     this.logGrapherClick(
                         trackedElement.getAttribute(dataTrackAttr) || undefined,
                         {
@@ -287,7 +292,6 @@ export class GrapherAnalytics {
             console.log("Analytics.logToGA", event)
             return
         }
-
         if (typeof window !== "undefined") window.dataLayer?.push(event)
     }
 

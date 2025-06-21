@@ -4,7 +4,7 @@ import {
 } from "../OwidVariableDisplayConfigInterface.js"
 import { ColumnSlugs, EntityName } from "../domainTypes/CoreTableTypes.js"
 import { AxisAlign, Position } from "../domainTypes/Layout.js"
-import { Integer } from "../domainTypes/Various.js"
+import { Integer, OwidVariableId } from "../domainTypes/Various.js"
 import { DetailDictionary } from "../gdocTypes/Gdoc.js"
 import { observable } from "mobx"
 import {
@@ -15,6 +15,7 @@ import {
     GRAPHER_TAB_QUERY_PARAMS,
     GRAPHER_TAB_TYPES,
 } from "./GrapherConstants.js"
+import { OwidVariableDataMetadataDimensions } from "../OwidVariable.js"
 
 export interface Box {
     x: number
@@ -339,6 +340,13 @@ export enum BinningStrategy {
     // The `manual` option is ignored in the algorithms below,
     // but it is stored and handled by the chart.
     manual = "manual",
+}
+
+export interface ProjectionColumnInfo {
+    projectedSlug: ColumnSlug
+    historicalSlug: ColumnSlug
+    combinedSlug: ColumnSlug
+    slugForIsProjectionColumn: ColumnSlug
 }
 
 export class ColorScaleConfigDefaults {
@@ -754,7 +762,6 @@ export const grapherKeysToSerialize = [
     // internals
     "adminBaseUrl",
     "bakedGrapherURL",
-    "dataApiUrl",
 ]
 
 export enum GrapherStaticFormat {
@@ -773,3 +780,7 @@ export enum GrapherWindowType {
     modal = "modal",
     drawer = "drawer",
 }
+
+export type AdditionalGrapherDataFetchFn = (
+    varId: OwidVariableId
+) => Promise<OwidVariableDataMetadataDimensions>

@@ -17,7 +17,7 @@ import { MarkdownTextWrap } from "@ourworldindata/components"
 import {
     HIDE_IF_JS_DISABLED_CLASSNAME,
     HIDE_IF_JS_ENABLED_CLASSNAME,
-    ArchivedChartOrArchivePageMeta,
+    ArchiveContext,
 } from "@ourworldindata/types"
 import urljoin from "url-join"
 import {
@@ -41,7 +41,7 @@ export const GrapherPage = (props: {
     relatedArticles?: PostReference[]
     baseUrl: string
     baseGrapherUrl: string
-    archivedChartInfo?: ArchivedChartOrArchivePageMeta
+    archivedChartInfo?: ArchiveContext
 }) => {
     const {
         grapher,
@@ -83,10 +83,9 @@ export const GrapherPage = (props: {
         ...grapher,
         adminBaseUrl: ADMIN_BASE_URL,
         bakedGrapherURL: BAKED_GRAPHER_URL,
-        dataApiUrl: DATA_API_URL,
     })}
 const archivedChartInfo = ${JSON.stringify(archivedChartInfo || undefined)}
-window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig, { archivedChartInfo })`
+window.renderSingleGrapherOnGrapherPage(jsonConfig, "${DATA_API_URL}", { archivedChartInfo })`
 
     const variableIds = uniq(grapher.dimensions!.map((d) => d.variableId))
 
