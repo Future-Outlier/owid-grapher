@@ -1,5 +1,5 @@
+import * as _ from "lodash-es"
 import cx from "classnames"
-import { get } from "lodash-es"
 
 export type Container =
     | "default"
@@ -24,8 +24,8 @@ const layouts: { [key in Container]: Layouts} = {
     ["default"]: {
         ["align"]: "col-start-5 span-cols-6 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["all-charts"]: "col-start-2 span-cols-12",
-        ["aside-left"]: "col-start-2 span-cols-3 span-md-cols-10 col-md-start-3",
-        ["aside-right"]: "col-start-11 span-cols-3 span-md-cols-10 col-md-start-3",
+        ["aside--left"]: "col-start-2 span-cols-3 span-md-cols-10 col-md-start-3 span-sm-cols-12 col-sm-start-2",
+        ["aside--right"]: "col-start-11 span-cols-3 span-md-cols-10 col-md-start-3 span-sm-cols-12 col-sm-start-2",
         ["chart-story"]: "col-start-4 span-cols-8 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["chart"]: "col-start-4 span-cols-8 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["default"]: "col-start-5 span-cols-6 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
@@ -54,7 +54,9 @@ const layouts: { [key in Container]: Layouts} = {
         ["pull-quote--left-center"]: "col-start-5 span-cols-6 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["pull-quote--right-center"]: "col-start-5 span-cols-6 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["pull-quote--right"]: "span-cols-14 grid grid-cols-12-full-width",
-        ["recirc"]: "col-start-11 span-cols-3 span-rows-3 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
+        ["recirc--left"]: "col-start-2 span-cols-3 span-rows-3 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
+        ["recirc--center"]: "col-start-5 span-cols-6 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
+        ["recirc--right"]: "col-start-11 span-cols-3 span-rows-3 col-md-start-3 span-md-cols-10 span-sm-cols-12 col-sm-start-2",
         ["research-and-writing"]: "col-start-2 span-cols-12",
         ["scroller"]: "grid span-cols-12 col-start-2",
         ["sdg-grid"]: "grid col-start-2 span-cols-12 col-lg-start-3 span-lg-cols-10 span-sm-cols-12 col-sm-start-2",
@@ -138,11 +140,11 @@ export function getLayout(
     blockType: string = "default",
     containerType: Container = "default"
 ): string {
-    const layout = get(
+    const layout = _.get(
         layouts,
         [containerType, blockType],
         // fallback to the default for the container
-        get(layouts, [containerType, "default"])
+        _.get(layouts, [containerType, "default"])
     )
     return cx(`article-block__${blockType}`, layout)
 }

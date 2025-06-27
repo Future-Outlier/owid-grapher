@@ -465,7 +465,7 @@ h3.article-block__heading {
 }
 
 .article-block__video {
-    margin: 24px 0 32px 0;
+    margin: 32px 0;
     @include body-3-medium-italic;
     color: $blue-60;
     text-align: center;
@@ -473,7 +473,29 @@ h3.article-block__heading {
         @include owid-link-90;
     }
     video {
-        width: 100%;
+        max-width: 100%;
+        max-height: 60vh;
+    }
+}
+
+/* A side-by-side with exactly one image/video in each column */
+.article-block__side-by-side {
+    > div {
+        .article-block__video:only-child,
+        .article-block__image:only-child {
+            /* The column container already has a margin, so these block elements don't need one */
+            margin: 0;
+        }
+    }
+
+    /* Add a bottom margin to the first element once they collapse to single column */
+    @include md-down {
+        > div:first-child {
+            .article-block__video:only-child,
+            .article-block__image:only-child {
+                margin-bottom: 24px;
+            }
+        }
     }
 }
 
@@ -807,43 +829,49 @@ p.article-block__text + #article-licence {
     }
 }
 
-.article-block__aside-right figcaption {
+.article-block__aside {
+    position: relative;
+    margin: 0;
+    color: $blue-60;
+    align-self: start;
+    grid-row: span 3;
+
+    margin-bottom: 8px;
+    a {
+        @include owid-link-90;
+    }
+
+    @include md-down {
+        border-left: 1px solid $blue-20;
+        border-right: 1px solid $blue-20;
+        padding: 16px;
+        text-align: center;
+    }
+
+    @include md-down {
+        margin-bottom: 16px;
+    }
+}
+
+.article-block__aside--right {
     border-left: 1px solid $blue-20;
-    padding-left: 24px;
-    a {
-        @include owid-link-90;
-    }
-
-    @include md-down {
-        border: 1px solid $blue-20;
-        padding: 24px;
-    }
+    padding-left: 16px;
 }
 
-.article-block__aside-left figcaption {
+.article-block__aside--left {
     border-right: 1px solid $blue-20;
-    padding-right: 24px;
-    text-align: right;
-    a {
-        @include owid-link-90;
-    }
-
-    // Same as aside-right when in a single-column mobile view
-    @include md-down {
-        border: 1px solid $blue-20;
-        padding: 24px;
-        text-align: left;
+    padding-right: 16px;
+    @include md-up {
+        text-align: right;
     }
 }
 
-div.article-block__table--narrow,
-div.article-block__table--wide,
-div.raw-html-table__container {
+@include table-block-override {
     overflow-x: auto;
+    margin-bottom: 32px;
     table {
         min-width: 100%;
         border-collapse: collapse;
-        margin-bottom: 32px;
 
         th {
             text-align: left;
@@ -852,9 +880,13 @@ div.raw-html-table__container {
             }
         }
 
+        th[scope="col"] {
+            text-wrap: nowrap;
+        }
+
         th[scope="col"],
         th[scope="row"] {
-            background-color: $blue-10;
+            background-color: $blue-5;
             p {
                 font-weight: 700;
                 margin-bottom: 0;
@@ -864,21 +896,26 @@ div.raw-html-table__container {
         td,
         th {
             border: 1px solid $blue-20;
-            padding: 16px;
+            padding: 12px;
+            vertical-align: top;
+            text-align: left;
         }
 
         .article-block__text,
         .article-block__list {
-            @include body-3-medium;
+            @include body-3-regular;
             &:last-child {
                 margin-bottom: 0;
+            }
+            @include md-down {
+                font-size: 0.75rem;
             }
         }
     }
 }
 
 div.raw-html-table__container {
-    @include body-3-medium;
+    @include body-3-regular;
 }
 
 .article-block__horizontal-rule {
@@ -888,33 +925,6 @@ div.raw-html-table__container {
 
     + .article-block__heading {
         margin-top: 0;
-    }
-}
-
-.article-block__recirc {
-    margin-bottom: 24px;
-
-    .recirc-content {
-        background: $gray-10;
-        padding: 24px;
-    }
-
-    .recirc-content__heading {
-        color: $blue-40;
-    }
-
-    h3 {
-        margin-top: 0;
-        a {
-            color: $blue-90;
-        }
-    }
-
-    .recirc-article-container {
-        padding: 24px 0;
-        &:not(:last-child) {
-            border-bottom: 1px solid $blue-10;
-        }
     }
 }
 
@@ -1204,6 +1214,13 @@ div.raw-html-table__container {
     }
 }
 
+// Compensation for MDIM dropdown height in side-by-side charts
+.mdim-compensation {
+    @include sm-up {
+        margin-top: 74px;
+    }
+}
+
 .article-block__prominent-link {
     margin-bottom: 8px;
     color: $blue-90;
@@ -1445,4 +1462,8 @@ div.raw-html-table__container {
 
 .homepage-search__panel {
     box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.05);
+}
+
+.article-block__sticky-left:has(+ .article-block__heading) {
+    margin-bottom: 0;
 }

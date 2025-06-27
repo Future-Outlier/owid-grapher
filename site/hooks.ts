@@ -1,19 +1,12 @@
-import {
-    useEffect,
-    RefObject,
-    useState,
-    useRef,
-    useCallback,
-    useMemo,
-} from "react"
+import * as _ from "lodash-es"
+import { useEffect, RefObject, useState, useCallback, useMemo } from "react"
 import { MultiEmbedderSingleton } from "./multiembedder/MultiEmbedder.js"
 import {
     Bounds,
-    debounce,
     DEFAULT_BOUNDS,
-    throttle,
+    getWindowQueryStr,
 } from "@ourworldindata/utils"
-import { useResizeObserver } from "usehooks-ts"
+import { useInterval, useResizeObserver } from "usehooks-ts"
 import { reaction } from "mobx"
 
 export const useTriggerWhenClickOutside = (
@@ -56,7 +49,7 @@ export const useScrollDirection = () => {
             lastScrollY = scrollY
         }
 
-        const updateDirectionThrottled = throttle(() => {
+        const updateDirectionThrottled = _.throttle(() => {
             updateDirection()
         }, 500)
 
@@ -79,10 +72,6 @@ export const useEmbedChart = (
             MultiEmbedderSingleton.observeFigures(refChartContainer.current)
         }
     }, [activeChartIdx, refChartContainer])
-}
-
-export const useDebounceCallback = (callback: any, delay: number) => {
-    return useRef(debounce(callback, delay)).current
 }
 
 export const useTriggerOnEscape = (trigger: VoidFunction) => {
@@ -121,7 +110,7 @@ export const useElementBounds = (
     const updateBoundsThrottled = useMemo(
         () =>
             throttleTime !== undefined
-                ? throttle(
+                ? _.throttle(
                       updateBoundsImmediately,
                       throttleTime,
 
@@ -197,4 +186,49 @@ export const useFocusTrap = (
             document.removeEventListener("keydown", handleKeyDown)
         }
     }, [ref, isActive])
+}
+
+declare global {
+    interface Window {
+        navigation?: {
+            addEventListener: (type: string, listener: () => void) => void
+            removeEventListener: (type: string, listener: () => void) => void
+        }
+    }
+}
+
+export const useWindowQueryParams = () => {
+    const hasWindowObj = typeof window !== "undefined"
+
+    const handleNavigation = useCallback(() => {
+        if (!hasWindowObj) return
+        setQueryParams(getWindowQueryStr())
+    }, [hasWindowObj])
+
+    const [queryParams, setQueryParams] = useState(() =>
+        hasWindowObj ? getWindowQueryStr() : ""
+    )
+
+    const hasNavigationApi = hasWindowObj && "navigation" in window
+
+    // If the Navigation API is available, we can use it to listen for URL changes
+    useEffect(() => {
+        if (!hasWindowObj || !hasNavigationApi) return
+        window.navigation?.addEventListener("navigatesuccess", handleNavigation)
+        return () => {
+            window.navigation?.removeEventListener(
+                "navigatesuccess",
+                handleNavigation
+            )
+        }
+    }, [hasWindowObj, hasNavigationApi, handleNavigation])
+
+    // There's not a great cross-browser way to observe changes to the URL query string,
+    // so we use a polling approach to update them in case the Navigation API is not available.
+    useInterval(
+        () => setQueryParams(getWindowQueryStr()),
+        hasWindowObj && !hasNavigationApi ? 1000 : null
+    )
+
+    return queryParams
 }

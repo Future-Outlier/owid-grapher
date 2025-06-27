@@ -1,8 +1,12 @@
+import * as _ from "lodash-es"
 import { GrapherAnalytics, EventCategory } from "@ourworldindata/grapher"
-import type { SearchCategoryFilter } from "./search/searchTypes.js"
-import type { DataCatalogState } from "./DataCatalog/DataCatalogState.js"
-import type { IDataCatalogHit } from "./DataCatalog/DataCatalogUtils.js"
-import { set } from "@ourworldindata/utils"
+import {
+    type SearchCategoryFilter,
+    type IDataCatalogHit,
+    type SearchState,
+    FilterType,
+} from "./search/searchTypes.js"
+import { getFilterNamesOfType } from "./search/searchUtils.js"
 
 export class SiteAnalytics extends GrapherAnalytics {
     logPageNotFoundError(url: string) {
@@ -86,14 +90,18 @@ export class SiteAnalytics extends GrapherAnalytics {
         })
     }
 
-    logDataCatalogSearch(state: DataCatalogState) {
+    logDataCatalogSearch(state: SearchState) {
         this.logToGA({
             event: EventCategory.DataCatalogSearch,
             eventAction: "search",
             eventContext: JSON.stringify({
                 ...state,
-                topics: Array.from(state.topics),
-                selectedCountryNames: Array.from(state.selectedCountryNames),
+                topics: Array.from(
+                    getFilterNamesOfType(state.filters, FilterType.TOPIC)
+                ),
+                selectedCountryNames: Array.from(
+                    getFilterNamesOfType(state.filters, FilterType.COUNTRY)
+                ),
             }),
         })
     }
@@ -108,12 +116,50 @@ export class SiteAnalytics extends GrapherAnalytics {
             position,
             source,
         }
-        if (ribbonTag) set(eventContext, "ribbonTag", ribbonTag)
+        if (ribbonTag) _.set(eventContext, "ribbonTag", ribbonTag)
         this.logToGA({
             event: EventCategory.DataCatalogResultClick,
             eventAction: "click",
             eventContext: JSON.stringify(eventContext),
             eventTarget: hit.slug,
+        })
+    }
+
+    logExpanderToggle(id: string, isOpen: boolean) {
+        this.logToGA({
+            event: EventCategory.Expander,
+            eventAction: isOpen ? "open" : "close",
+            eventTarget: id,
+        })
+    }
+
+    logSearchAutocompleteClick({
+        query,
+        position,
+        filterType,
+        filterName,
+        suggestions,
+        suggestionsTypes,
+        suggestionsCount,
+    }: {
+        query: string
+        position: number
+        filterType: FilterType
+        filterName: string
+        suggestions: string[]
+        suggestionsTypes: FilterType[]
+        suggestionsCount: number
+    }) {
+        this.logToGA({
+            event: EventCategory.SiteSearchAutocompleteClick,
+            eventAction: "click",
+            autocompleteQuery: query,
+            autocompletePosition: position,
+            autocompleteFilterType: filterType,
+            autocompleteFilterName: filterName,
+            autocompleteSuggestions: suggestions.join("~"), // not JSON.stringify to avoid broken JSON above 100 character limit
+            autocompleteSuggestionsTypes: suggestionsTypes.join("~"),
+            autocompleteSuggestionsCount: suggestionsCount,
         })
     }
 }

@@ -46,6 +46,9 @@ import { Socials } from "./Socials.js"
 import Person from "./Person.js"
 import NarrativeChart from "./NarrativeChart.js"
 import { Container, getLayout } from "./layout.js"
+import { Expander } from "./Expander.js"
+import { ChartConfigType } from "@ourworldindata/types"
+import { useLinkedChart } from "../utils.js"
 
 function ArticleBlockInternal({
     b: block,
@@ -59,6 +62,23 @@ function ArticleBlockInternal({
     shouldRenderLinks?: boolean
 }) {
     block.type = block.type.toLowerCase() as any // this comes from the user and may not be all lowercase, enforce it here
+
+    // Special handling for mdims in side-by-side blocks to align them with
+    // other charts.
+    const isSideBySide = block.type === "side-by-side"
+    const sideBySideBlock = isSideBySide ? block : null
+    const leftBlock = sideBySideBlock?.left?.[0] || null
+    const rightBlock = sideBySideBlock?.right?.[0] || null
+    const leftIsChart = leftBlock?.type === "chart"
+    const rightIsChart = rightBlock?.type === "chart"
+    // Hooks must be called unconditionally.
+    const { linkedChart: leftLinkedChart } = useLinkedChart(
+        leftIsChart ? leftBlock.url : ""
+    )
+    const { linkedChart: rightLinkedChart } = useLinkedChart(
+        rightIsChart ? rightBlock.url : ""
+    )
+
     if (block.parseErrors.filter(({ isWarning }) => !isWarning).length > 0) {
         return (
             <BlockErrorFallback
@@ -72,21 +92,20 @@ function ArticleBlockInternal({
     }
     return match(block)
         .with({ type: "aside" }, ({ caption, position = "right" }) => (
-            <figure
+            <aside
                 className={cx(
                     "body-3-medium-italic",
-                    getLayout(`aside-${position}`)
+                    "article-block__aside",
+                    getLayout(`aside--${position}`)
                 )}
             >
                 {caption ? (
-                    <figcaption>
-                        <SpanElements
-                            spans={caption}
-                            shouldRenderLinks={shouldRenderLinks}
-                        />
-                    </figcaption>
+                    <SpanElements
+                        spans={caption}
+                        shouldRenderLinks={shouldRenderLinks}
+                    />
                 ) : null}
-            </figure>
+            </aside>
         ))
         .with({ type: "all-charts" }, (block) => (
             <AllCharts
@@ -208,7 +227,10 @@ function ArticleBlockInternal({
             />
         ))
         .with({ type: "recirc" }, (block) => (
-            <Recirc className={getLayout("recirc", containerType)} d={block} />
+            <Recirc
+                className={getLayout(`recirc--${block.align}`, containerType)}
+                d={block}
+            />
         ))
         .with({ type: "numbered-list" }, (block) => (
             <NumberedList
@@ -477,28 +499,56 @@ function ArticleBlockInternal({
                 </div>
             </div>
         ))
-        .with({ type: "side-by-side" }, (block) => (
-            <div className={getLayout("side-by-side", containerType)}>
-                <div className="grid grid-cols-6 span-cols-6 span-sm-cols-12">
-                    {block.left.map((item, i) => (
-                        <ArticleBlock
-                            key={i}
-                            b={item}
-                            containerType="side-by-side"
-                        />
-                    ))}
+        .with({ type: "side-by-side" }, (block) => {
+            // Use the chart info detected at the top level
+            const leftIsMdim =
+                leftLinkedChart?.configType === ChartConfigType.MultiDim
+            const rightIsMdim =
+                rightLinkedChart?.configType === ChartConfigType.MultiDim
+
+            // Check if both are charts and one is mdim and the other isn't
+            const shouldApplyCompensation =
+                leftIsChart && rightIsChart && leftIsMdim !== rightIsMdim
+
+            return (
+                <div className={getLayout("side-by-side", containerType)}>
+                    <div
+                        className={cx(
+                            "grid grid-cols-6 span-cols-6 span-sm-cols-12",
+                            {
+                                "mdim-compensation":
+                                    shouldApplyCompensation && !leftIsMdim,
+                            }
+                        )}
+                    >
+                        {block.left.map((item, i) => (
+                            <ArticleBlock
+                                key={i}
+                                b={item}
+                                containerType="side-by-side"
+                            />
+                        ))}
+                    </div>
+                    <div
+                        className={cx(
+                            "grid grid-cols-6 span-cols-6 span-sm-cols-12",
+                            {
+                                "mdim-compensation":
+                                    shouldApplyCompensation && !rightIsMdim,
+                            }
+                        )}
+                    >
+                        {block.right.map((item, i) => (
+                            <ArticleBlock
+                                key={i}
+                                b={item}
+                                containerType="side-by-side"
+                            />
+                        ))}
+                    </div>
                 </div>
-                <div className="grid grid-cols-6 span-cols-6 span-sm-cols-12">
-                    {block.right.map((item, i) => (
-                        <ArticleBlock
-                            key={i}
-                            b={item}
-                            containerType="side-by-side"
-                        />
-                    ))}
-                </div>
-            </div>
-        ))
+            )
+        })
         .with({ type: "gray-section" }, (block) => (
             <div className={getLayout("gray-section")}>
                 {block.items.map((item, i) => (
@@ -551,6 +601,18 @@ function ArticleBlockInternal({
                     <ArticleBlock key={i} b={item} />
                 ))}
             </ExpandableParagraph>
+        ))
+        .with({ type: "expander" }, (block) => (
+            <Expander
+                className={getLayout("expander", containerType)}
+                {...block}
+            >
+                <div className="expander__content">
+                    {block.content.map((item, i) => (
+                        <ArticleBlock key={i} b={item} />
+                    ))}
+                </div>
+            </Expander>
         ))
         .with({ type: "topic-page-intro" }, (block) => (
             <TopicPageIntro

@@ -32,7 +32,13 @@ Note: compatibility dates between local development, production and preview envi
 
 We have two cloudflare projects set up that you can deploy previews to. `owid` which is also where our production deployment runs, and `owid-staging`. Currently, `owid` is configured to require authentication while `owid-staging` is accessible from the internet without any kind of auth.
 
-`yarn deployContentPreview` deploys the staging `bakedSite` to a Cloudflare preview at https://[PREVIEW_BRANCH].[PROJECT].pages.dev. This is the recommended way to test functions in a production-like environment. See [../ops/buildkite/deploy-content-preview](../ops/buildkite/deploy-content-preview) for more details.
+To deploy to Cloudflare preview at https://[PREVIEW_BRANCH].[PROJECT].pages.dev run the following from `ops` repository
+
+```bash
+BUILDKITE_BRANCH=$PREVIEW_BRANCH bash templates/owid-site-staging/deploy-content-preview.sh $HOST
+```
+
+This is the recommended way to test functions in a production-like environment.
 
 ### Rationale
 
@@ -48,6 +54,42 @@ Our workflow uses `wrangler pages deploy` to deploy the `bakedSite` to
 Cloudflare. Similarly, `yarn deployContentPreview` uses `wrangler pages deploy
 --branch=[PREVIEW_BRANCH]` to deploy the `bakedSite` to a Cloudflare preview at
 https://[PREVIEW_BRANCH].owid-staging.pages.dev.
+
+# Analytics
+
+Download requests are tracked via Google Analytics 4 using a middleware system. The analytics functionality is centralized in `_common/analytics.ts`.
+
+## How it works
+
+The analytics system operates through a middleware that runs for every request:
+
+1. **Middleware execution**: The `analyticsMiddleware` function runs before all route handlers via `_middleware.ts`
+2. **Download detection**: For download requests (based on file extensions), the middleware:
+    - Applies sampling based on `CLOUDFLARE_GOOGLE_ANALYTICS_SAMPLING_RATE`
+    - Processes the request to capture the response status code
+    - Sends analytics data to Google Analytics 4 using `context.waitUntil()` for non-blocking execution
+
+## Configuration
+
+The analytics system requires these environment variables:
+
+- `CLOUDFLARE_GOOGLE_ANALYTICS_MEASUREMENT_PROTOCOL_KEY`
+    - A secret API key to authorize requests to the measurement protocol endpoint.
+    - Found in Google Analytics under "Measurement Protocol API secrets"
+    - e.g. "Jh0bas87b12Ebhjas927ba"
+- `CLOUDFLARE_GOOGLE_ANALYTICS_MEASUREMENT_ID`:
+    - An ID that links this measurement protocol to our GA4 setup.
+    - Found in Google Analytics under "Web stream details"
+    - e.g. "A1B2C3D4E5"
+- `CLOUDFLARE_GOOGLE_ANALYTICS_SAMPLING_RATE`
+    - Sampling rate as decimal
+    - e.g. "0.01" for 1%
+
+## Performance considerations
+
+- **Non-blocking**: Analytics requests use `context.waitUntil()` so they don't delay user responses
+- **Sampling**: Only a percentage of requests are tracked (configurable via environment variable)
+- **Error handling**: Analytics failures are logged but don't affect user experience
 
 # Our dynamic routes
 
@@ -167,7 +209,6 @@ Note: this will send the `checkout.session.completed` event expected in `/donati
 The thank-you webhook can subscribe donors to a Mailchimp newsletter list. To test this functionality:
 
 1. Set up the following environment variables in your `.dev.vars`:
-
     - `MAILCHIMP_API_KEY`: You can find this in 1Password.
     - `MAILCHIMP_API_SERVER`: The server prefix for our Mailchimp account (e.g., "us1"). You can find this in the URL when you log into Mailchimp (e.g., `https://us1.admin.mailchimp.com`).
     - `MAILCHIMP_DONOR_LIST_ID`: The ID of the donor newsletter Mailchimp list you want to subscribe donors to. You can find this in 1Password.

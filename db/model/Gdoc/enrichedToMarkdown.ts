@@ -1,3 +1,4 @@
+import * as _ from "lodash-es"
 import {
     EnrichedBlockKeyIndicator,
     gdocUrlRegex,
@@ -7,9 +8,7 @@ import { getLinkType } from "@ourworldindata/components"
 import {
     OwidEnrichedGdocBlock,
     Span,
-    compact,
     excludeNullish,
-    isArray,
 } from "@ourworldindata/utils"
 import { match, P } from "ts-pattern"
 
@@ -115,7 +114,7 @@ export function enrichedBlockToMarkdown(
             // TODO: the cases below should not happen but come up in the DB - this is a debug helper to get to the bottom of it
             if (b.value === undefined)
                 console.error("Text block value is undefined")
-            if (!isArray(b.value))
+            if (!_.isArray(b.value))
                 console.error("Text block value is not an array", b.value)
             return spansToMarkdown(b.value)
         })
@@ -232,7 +231,7 @@ ${items}
                 b.title,
                 enrichedBlocksToMarkdown(b.text, exportComponents),
             ]
-            return compact(items).join("\n")
+            return _.compact(items).join("\n")
         })
         .with({ type: "pull-quote" }, (b): string | undefined => {
             const quote = b.quote
@@ -315,6 +314,11 @@ ${items}`
         )
         .with({ type: "expandable-paragraph" }, (b): string | undefined =>
             enrichedBlocksToMarkdown(b.items, exportComponents)
+        )
+        .with(
+            { type: "expander" },
+            (b): string | undefined =>
+                `${b.title}\n${enrichedBlocksToMarkdown(b.content, exportComponents)}`
         )
         .with({ type: "topic-page-intro" }, (b): string | undefined =>
             enrichedBlocksToMarkdown(b.content, exportComponents)

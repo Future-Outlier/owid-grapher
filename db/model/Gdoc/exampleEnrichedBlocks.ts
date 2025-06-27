@@ -284,10 +284,17 @@ export const enrichedBlockExamples: Record<
     },
     recirc: {
         type: "recirc",
-        title: spanSimpleText,
+        title: "Continue reading",
+        align: "center",
         links: [
             {
                 url: "https://docs.google.com/document/d/abcd-1234/edit",
+                type: "recirc-link",
+            },
+            {
+                url: "https://ourworldindata.org/grapher/life-expectancy",
+                title: "Life expectancy",
+                subtitle: "This is an inspiring chart",
                 type: "recirc-link",
             },
         ],
@@ -359,6 +366,14 @@ export const enrichedBlockExamples: Record<
     "expandable-paragraph": {
         type: "expandable-paragraph",
         items: [enrichedBlockText],
+        parseErrors: [],
+    },
+    expander: {
+        type: "expander",
+        title: "Expander title",
+        heading: "Additional information",
+        subtitle: "Click here to expand",
+        content: [enrichedBlockText],
         parseErrors: [],
     },
     "topic-page-intro": {
