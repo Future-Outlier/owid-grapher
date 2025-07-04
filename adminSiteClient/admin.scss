@@ -355,7 +355,8 @@ $nav-height: 45px;
         }
     }
 
-    figure[data-grapher-src] {
+    figure[data-grapher-src],
+    figure.grapher-component {
         line-height: 0; // remove extra space on the bottom
     }
 }
@@ -1468,4 +1469,10 @@ main:not(.ChartEditorPage):not(.GdocsEditPage) {
             }
         }
     }
+}
+
+// Make the x/y dropdown in the comparison line editor narrow
+.comparisonLine .form-group:first-of-type {
+    flex-grow: 0;
+    flex-basis: 65px;
 }

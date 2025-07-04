@@ -1,13 +1,10 @@
+import * as _ from "lodash-es"
 import React from "react"
 import * as R from "remeda"
 import {
     Bounds,
     DEFAULT_BOUNDS,
-    min,
-    max,
-    maxBy,
     excludeUndefined,
-    sortBy,
     numberMagnitude,
     Color,
     SortOrder,
@@ -19,6 +16,7 @@ import {
     getRelativeMouse,
     makeIdForHumanConsumption,
     dyFromAlign,
+    exposeInstanceOnWindow,
 } from "@ourworldindata/utils"
 import { action, computed, observable } from "mobx"
 import { observer } from "mobx-react"
@@ -50,7 +48,7 @@ import {
     makeSelectionArray,
 } from "../chart/ChartUtils"
 import {
-    stackSeries,
+    stackSeriesInBothDirections,
     withMissingValuesAsZeroes,
 } from "../stackedCharts/StackedUtils"
 import { ChartManager } from "../chart/ChartManager"
@@ -156,9 +154,6 @@ export class StackedDiscreteBarChart
         // TODO: remove this filter once we don't have mixed type columns in datasets
         table = table.replaceNonNumericCellsWithErrorValues(this.yColumnSlugs)
 
-        // stacked discrete bar charts don't support negative values
-        table = table.replaceNegativeCellsWithErrorValues(this.yColumnSlugs)
-
         table = table.dropRowsWithErrorValuesForAllColumns(this.yColumnSlugs)
 
         this.yColumnSlugs.forEach((slug) => {
@@ -168,9 +163,11 @@ export class StackedDiscreteBarChart
         table = this.applyMissingDataStrategy(table)
 
         if (this.manager.isRelativeMode) {
-            table = table.toPercentageFromEachColumnForEachEntityAndTime(
-                this.yColumnSlugs
-            )
+            table = table
+                .replaceNegativeCellsWithErrorValues(this.yColumnSlugs)
+                .toPercentageFromEachColumnForEachEntityAndTime(
+                    this.yColumnSlugs
+                )
         }
 
         return table
@@ -265,7 +262,7 @@ export class StackedDiscreteBarChart
 
     // Account for the width of the legend
     @computed private get labelWidth(): number {
-        return max(this.sizedItems.map((d) => d.label.width)) ?? 0
+        return _.max(this.sizedItems.map((d) => d.label.width)) ?? 0
     }
 
     @computed get showTotalValueLabel(): boolean {
@@ -283,7 +280,7 @@ export class StackedDiscreteBarChart
         const labels = this.sizedItems.map((d) =>
             this.formatValueForLabel(d.totalValue)
         )
-        const longestLabel = maxBy(labels, (l) => l.length)
+        const longestLabel = _.maxBy(labels, (l) => l.length)
         return Bounds.forText(longestLabel, this.totalValueLabelStyle).width
     }
 
@@ -300,10 +297,7 @@ export class StackedDiscreteBarChart
         const maxValues = this.allPoints.map(
             (point) => point.value + point.valueOffset
         )
-        return [
-            Math.min(this.x0, min(maxValues) as number),
-            Math.max(this.x0, max(maxValues) as number),
-        ]
+        return [this.x0, Math.max(this.x0, _.max(maxValues) as number)]
     }
 
     @computed private get xRange(): [number, number] {
@@ -448,13 +442,9 @@ export class StackedDiscreteBarChart
             }
             default:
             case SortBy.total:
-                sortByFunc = (item: Item): number => {
-                    const lastPoint = R.last(item.bars)?.point
-                    if (!lastPoint) return 0
-                    return lastPoint.valueOffset + lastPoint.value
-                }
+                sortByFunc = (item: Item): number => item.totalValue
         }
-        const sortedItems = sortBy(this.sizedItems, sortByFunc)
+        const sortedItems = _.sortBy(this.sizedItems, sortByFunc)
         const sortOrder = this.sortConfig.sortOrder ?? SortOrder.desc
         if (sortOrder === SortOrder.desc) return sortedItems.toReversed()
         else return sortedItems
@@ -499,7 +489,7 @@ export class StackedDiscreteBarChart
     // legend props
 
     @computed get legendPaddingTop(): number {
-        return this.baseFontSize
+        return 0.5 * this.baseFontSize
     }
 
     @computed get legendX(): number {
@@ -651,6 +641,13 @@ export class StackedDiscreteBarChart
         const totalLabel = this.formatValueForLabel(totalValue)
         const showLabelInsideBar = bars.length > 1
 
+        // We can't just take the last bar here because if the last bar has a negative value,
+        // its position on the chart (valueOffset + value) might actually be leftmost rather than rightmost.
+        // So we find the maximum position across all bars to determine where to place the total value label.
+        const lastValue =
+            _.max(bars.map((bar) => bar.point.valueOffset + bar.point.value)) ??
+            0
+
         return (
             <g
                 key={entityName}
@@ -685,7 +682,7 @@ export class StackedDiscreteBarChart
                 {this.showTotalValueLabel && (
                     <text
                         transform={`translate(${
-                            yAxis.place(totalValue) + labelToBarPadding
+                            yAxis.place(lastValue) + labelToBarPadding
                         }, 0)`}
                         dy={dyFromAlign(VerticalAlign.middle)}
                         {...this.totalValueLabelStyle}
@@ -809,9 +806,13 @@ export class StackedDiscreteBarChart
         const isHover =
             chartContext.hoverSeriesName === bar.seriesName &&
             chartContext.hoverEntityName === entity
-        const barX = yAxis.place(chartContext.x0 + bar.point.valueOffset)
-        const barWidth =
+        let barX = yAxis.place(chartContext.x0 + bar.point.valueOffset)
+        const barWidth = Math.abs(
             yAxis.place(bar.point.value) - yAxis.place(chartContext.x0)
+        )
+
+        // Place bars that represent negative values on the left
+        if (bar.point.value < 0) barX -= barWidth
 
         const barLabel = formatValueForLabel(bar.point.value)
         const labelFontSize = GRAPHER_FONT_SCALE_12 * chartContext.baseFontSize
@@ -1024,6 +1025,12 @@ export class StackedDiscreteBarChart
     }
 
     @computed get series(): readonly StackedSeries<EntityName>[] {
-        return stackSeries(withMissingValuesAsZeroes(this.unstackedSeries))
+        return stackSeriesInBothDirections(
+            withMissingValuesAsZeroes(this.unstackedSeries)
+        )
+    }
+
+    componentDidMount(): void {
+        exposeInstanceOnWindow(this)
     }
 }

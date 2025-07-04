@@ -23,6 +23,11 @@ import {
     ColumnSlug,
     GrapherTabName,
     GRAPHER_TAB_NAMES,
+    ProjectionColumnInfo,
+    CoreValueType,
+    PrimitiveType,
+    ColumnTypeNames,
+    Time,
 } from "@ourworldindata/types"
 import { LineChartSeries } from "../lineCharts/LineChartConstants"
 import { SelectionArray } from "../selection/SelectionArray"
@@ -34,7 +39,11 @@ import {
     validChartTypeCombinations,
 } from "../core/GrapherConstants"
 import { ChartSeries } from "./ChartInterface"
-import { CoreColumn, OwidTable } from "@ourworldindata/core-table"
+import {
+    ErrorValueTypes,
+    isNotErrorValueOrEmptyCell,
+    OwidTable,
+} from "@ourworldindata/core-table"
 
 export const autoDetectYColumnSlugs = (manager: ChartManager): string[] => {
     if (manager.yColumnSlugs && manager.yColumnSlugs.length)
@@ -91,17 +100,27 @@ export const autoDetectSeriesStrategy = (
         : SeriesStrategy.entity
 }
 
-export const makeClipPath = (
-    renderUid: number,
+export interface ClipPath {
+    id: string
+    element: React.ReactElement
+}
+
+export const makeClipPath = (props: {
+    name?: string
+    renderUid: number
     box: Box
-): { id: string; element: React.ReactElement } => {
-    const id = `boundsClip-${renderUid}`
+}): {
+    id: string
+    element: React.ReactElement
+} => {
+    const name = props.name ?? "boundsClip"
+    const id = `${name}-${props.renderUid}`
     return {
         id: `url(#${id})`,
         element: (
             <defs>
                 <clipPath id={id}>
-                    <rect {...box}></rect>
+                    <rect {...props.box}></rect>
                 </clipPath>
             </defs>
         ),
@@ -283,9 +302,8 @@ export function makeAxisLabel({
     unit?: string // shown in normal weight, usually in parens
 } {
     const displayUnit = unit && unit !== shortUnit ? unit : undefined
-    const unitInParens = displayUnit ? `(${displayUnit})` : undefined
 
-    if (unitInParens) {
+    if (displayUnit) {
         // extract text in parens at the end of the label,
         // e.g. "Population (millions)" is split into "Population " and "(millions)"
         const [
@@ -297,9 +315,9 @@ export function makeAxisLabel({
 
         // don't show unit twice if it's contained in the label
         const displayLabel =
-            labelTextInParens === unitInParens ? mainLabelText : label
+            labelTextInParens === `(${displayUnit})` ? mainLabelText : label
 
-        return { mainLabel: displayLabel, unit: unitInParens }
+        return { mainLabel: displayLabel, unit: displayUnit }
     }
 
     return { mainLabel: label }
@@ -412,76 +430,74 @@ function maybeLineChartThatTurnedIntoDiscreteBar(
     return chartType
 }
 
-/** Find a start time for which a slope chart shows as many lines as possible */
-export function findStartTimeForSlopeChart(
-    table: OwidTable,
-    columnSlugs: ColumnSlug[],
-    originalStartTime: number,
-    endTime: number
-): number {
-    const timeCol = table.timeColumn
-    const times = timeCol.uniqTimesAsc
-    const startTimeIndex = times.findIndex((time) => time >= originalStartTime)
-
-    // Bail if we can't find the start time
-    if (startTimeIndex === -1) return originalStartTime
-
-    const pairsToCheck: [CoreColumn, string][] = []
-
-    // Find all (col, entityName) pairings that have an endpoint available at endTime.
-    // These are the series we need to consider, because we never change endTime,
-    // and if there's no data at the end time, we can't show a line.
-    for (const columnSlug of columnSlugs) {
-        const column = table.get(columnSlug)
-        for (const [
-            entityName,
-            timeMap,
-        ] of column.owidRowByEntityNameAndTime.entries()) {
-            const endValue = timeMap.get(endTime)
-
-            if (endValue !== undefined) {
-                pairsToCheck.push([column, entityName])
-            }
-        }
-    }
-
-    const maxNumSeries = pairsToCheck.length
-
-    let candidate = { time: originalStartTime, numSeries: 0 }
-
-    // Iterate over all times and keep track of how many lines can be displayed on the chart
-    for (let i = startTimeIndex; i < times.length; i++) {
-        const time = times[i]
-
-        // Don't pick a start time that is after the end time
-        if (time >= endTime) break
-
-        let numSeries = maxNumSeries
-        for (const [col, entityName] of pairsToCheck) {
-            const owidRows = col.owidRowByEntityNameAndTime.get(entityName)
-
-            const startValue = owidRows?.get(time)
-
-            if (startValue === undefined) {
-                numSeries -= 1
-
-                // Stop early if the current time has less data than the current candidate
-                if (numSeries <= candidate.numSeries) break
-            }
-        }
-
-        // We found a time for which all lines can be drawn
-        if (numSeries === maxNumSeries) return time
-
-        // Update the candidate if we found a better time
-        if (numSeries > candidate.numSeries) candidate = { time, numSeries }
-    }
-
-    return candidate.time
-}
-
 export const isChartTab = (tab: GrapherTabName): boolean =>
     tab !== GRAPHER_TAB_NAMES.Table && tab !== GRAPHER_TAB_NAMES.WorldMap
 
 export const isMapTab = (tab: GrapherTabName): boolean =>
     tab === GRAPHER_TAB_NAMES.WorldMap
+
+export function combineHistoricalAndProjectionColumns(
+    table: OwidTable,
+    info: ProjectionColumnInfo,
+    options?: { shouldAddIsProjectionColumn: boolean }
+): OwidTable {
+    const {
+        historicalSlug,
+        projectedSlug,
+        combinedSlug,
+        slugForIsProjectionColumn,
+    } = info
+
+    const transformFn = (
+        row: Record<ColumnSlug, { value: CoreValueType; time: Time }>,
+        time: Time
+    ): { isProjection: boolean; value: PrimitiveType } | undefined => {
+        // It's possible to have both a historical and a projected value
+        // for a given year. In that case, we prefer the historical value.
+
+        const historical = row[historicalSlug]
+        const projected = row[projectedSlug]
+
+        const historicalTimeDiff = Math.abs(historical.time - time)
+        const projectionTimeDiff = Math.abs(projected.time - time)
+
+        if (
+            isNotErrorValueOrEmptyCell(historical.value) &&
+            // If tolerance was applied to the historical column, we need to
+            // make sure the interpolated historical value doesn't get picked
+            // over the actual projected value
+            historicalTimeDiff <= projectionTimeDiff
+        )
+            return { value: historical.value, isProjection: false }
+
+        if (isNotErrorValueOrEmptyCell(projected.value)) {
+            return { value: projected.value, isProjection: true }
+        }
+
+        return undefined
+    }
+
+    // Combine the historical and projected values into a single column
+    table = table.combineColumns(
+        [projectedSlug, historicalSlug],
+        { ...table.get(projectedSlug).def, slug: combinedSlug },
+        (row, time) =>
+            transformFn(row, time)?.value ??
+            ErrorValueTypes.MissingValuePlaceholder
+    )
+
+    // Add a column indicating whether the value is a projection or not
+    if (options?.shouldAddIsProjectionColumn)
+        table = table.combineColumns(
+            [projectedSlug, historicalSlug],
+            {
+                slug: slugForIsProjectionColumn,
+                type: ColumnTypeNames.Boolean,
+            },
+            (row, time) =>
+                transformFn(row, time)?.isProjection ??
+                ErrorValueTypes.MissingValuePlaceholder
+        )
+
+    return table
+}

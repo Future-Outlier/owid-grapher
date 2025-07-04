@@ -4,8 +4,8 @@ import {
     renderFrontPage,
     renderGdocsPageBySlug,
     renderPageBySlug,
-    renderDataCatalogPage,
     renderSearchPage,
+    DEPRECATEDrenderSearchPage,
     renderDonatePage,
     makeAtomFeed,
     feedbackPage,
@@ -350,7 +350,7 @@ getPlainRouteWithROTransaction(
     mockSiteRouter,
     "/data*",
     async (req, res, trx) => {
-        res.send(await renderDataCatalogPage(trx))
+        res.send(await renderSearchPage(trx))
     }
 )
 
@@ -391,7 +391,7 @@ countryProfileSpecs.forEach((spec) =>
 )
 
 mockSiteRouter.get("/search", async (req, res) =>
-    res.send(await renderSearchPage())
+    res.send(await DEPRECATEDrenderSearchPage())
 )
 
 getPlainRouteWithROTransaction(
@@ -492,7 +492,11 @@ getPlainRouteNonIdempotentWithRWTransaction(
         try {
             // We assume here that author slugs are unique across all gdocs (not
             // just author gdocs)
-            const page = await renderGdocsPageBySlug(trx, req.params.authorSlug)
+            const page = await renderGdocsPageBySlug(
+                trx,
+                req.params.authorSlug,
+                true
+            )
             res.send(page)
             return
         } catch (e) {
@@ -561,7 +565,7 @@ getPlainRouteWithROTransaction(mockSiteRouter, "/*", async (req, res, trx) => {
     const slug = req.path.replace(/^\/|\/$/g, "")
 
     try {
-        const page = await renderGdocsPageBySlug(trx, slug)
+        const page = await renderGdocsPageBySlug(trx, slug, true)
         res.send(page)
         return
     } catch (e) {

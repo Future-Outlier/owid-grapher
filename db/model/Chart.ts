@@ -499,7 +499,7 @@ export async function getGptTopicSuggestions(
     const openai = new OpenAI({
         apiKey: OPENAI_API_KEY,
     })
-    const completion = await openai.beta.chat.completions.parse({
+    const completion = await openai.chat.completions.parse({
         messages: [{ role: "user", content: prompt }],
         model: "gpt-4o",
         response_format: zodResponseFormat(TopicsResponseSchema, "topics"),
@@ -608,6 +608,7 @@ export const getRelatedChartsForVariable = async (
         knex,
         `-- sql
             SELECT
+                charts.id AS chartId,
                 chart_configs.slug,
                 chart_configs.full->>"$.title" AS title,
                 chart_configs.full->>"$.variantName" AS variantName,

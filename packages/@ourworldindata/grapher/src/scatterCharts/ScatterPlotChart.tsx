@@ -1,7 +1,7 @@
+import * as _ from "lodash-es"
 import React from "react"
 import * as R from "remeda"
 import {
-    ComparisonLineConfig,
     ScaleType,
     EntitySelectionMode,
     ScatterPointLabelStrategy,
@@ -13,34 +13,23 @@ import {
     ColumnSlug,
     AxisAlign,
 } from "@ourworldindata/types"
-import { ComparisonLine } from "../scatterCharts/ComparisonLine"
 import { observable, computed, action } from "mobx"
 import { ScaleLinear, scaleSqrt } from "d3-scale"
 import { Quadtree, quadtree } from "d3-quadtree"
 import { quantize, interpolate } from "d3-interpolate"
 import {
     intersection,
-    without,
     excludeNullish,
-    uniq,
     pairs,
-    clone,
     excludeUndefined,
-    isEmpty,
-    isNumber,
     domainExtent,
     getRelativeMouse,
     lowerCaseFirstLetterUnlessAbbreviation,
     exposeInstanceOnWindow,
-    groupBy,
-    min,
-    max,
     PointVector,
     Bounds,
     DEFAULT_BOUNDS,
     isTouchDevice,
-    round,
-    difference,
     makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { observer } from "mobx-react"
@@ -109,8 +98,8 @@ import {
 import { NoDataSection } from "./NoDataSection"
 
 function computeSizeDomain(table: OwidTable, slug: ColumnSlug): ValueRange {
-    const sizeValues = table.get(slug).values.filter(isNumber)
-    return [0, max(sizeValues) ?? 1]
+    const sizeValues = table.get(slug).values.filter(_.isNumber)
+    return [0, _.max(sizeValues) ?? 1]
 }
 
 @observer
@@ -176,12 +165,12 @@ export class ScatterPlotChart
         table = table
             .columnFilter(
                 this.xColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in X column"
             )
             .columnFilter(
                 this.yColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in Y column"
             )
 
@@ -206,12 +195,12 @@ export class ScatterPlotChart
         table = table
             .columnFilter(
                 this.xColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in X column"
             )
             .columnFilter(
                 this.yColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in Y column"
             )
         return table
@@ -269,12 +258,12 @@ export class ScatterPlotChart
         table = table
             .columnFilter(
                 this.xColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in X column"
             )
             .columnFilter(
                 this.yColumnSlug,
-                isNumber,
+                _.isNumber,
                 "Drop rows with non-number values in Y column"
             )
 
@@ -337,7 +326,7 @@ export class ScatterPlotChart
                 this.colorColumnSlug
             )?.valuesIncludingErrorValues ?? []
         // Need to convert InvalidCell to undefined for color scale to assign correct color
-        const colorValues = uniq(
+        const colorValues = _.uniq(
             allValues.map((value: any) =>
                 isNotErrorValue(value) ? value : undefined
             )
@@ -380,11 +369,11 @@ export class ScatterPlotChart
             keysToToggle.length
         if (allKeysActive)
             selectionArray.setSelectedEntities(
-                without(this.selectedEntityNames, ...keysToToggle)
+                _.without(this.selectedEntityNames, ...keysToToggle)
             )
         else
             selectionArray.setSelectedEntities(
-                uniq(this.selectedEntityNames.concat(keysToToggle))
+                _.uniq(this.selectedEntityNames.concat(keysToToggle))
             )
     }
 
@@ -409,7 +398,7 @@ export class ScatterPlotChart
         const hoveredSeriesNames =
             hoverColor === undefined
                 ? []
-                : uniq(
+                : _.uniq(
                       this.series
                           .filter((g) => g.color === hoverColor)
                           .map((g) => g.seriesName)
@@ -511,6 +500,7 @@ export class ScatterPlotChart
             bounds: this.axisBounds,
             horizontalAxis: horizontalAxisPart,
             verticalAxis: verticalAxisPart,
+            comparisonLines: this.manager.comparisonLines,
         })
     }
 
@@ -520,12 +510,6 @@ export class ScatterPlotChart
 
     @computed get xAxis(): HorizontalAxis {
         return this.dualAxis.horizontalAxis
-    }
-
-    @computed private get comparisonLines():
-        | ComparisonLineConfig[]
-        | undefined {
-        return this.manager.comparisonLines
     }
 
     @action.bound private onToggleEndpoints(): void {
@@ -543,7 +527,7 @@ export class ScatterPlotChart
         if (activeKeys.length)
             series = series.filter((g) => activeKeys.includes(g.seriesName))
 
-        const colorValues = uniq(
+        const colorValues = _.uniq(
             series.flatMap((s) => s.points.map((p) => p.color))
         )
         return excludeUndefined(
@@ -600,7 +584,7 @@ export class ScatterPlotChart
                             { x: b.x, y: b.y }
                         ),
                         coords = quantize(
-                            (pct: number) => clone(lineRange(pct)),
+                            (pct: number) => _.clone(lineRange(pct)),
                             numPoints
                         )
 
@@ -704,7 +688,7 @@ export class ScatterPlotChart
 
     @computed
     private get selectedEntitiesWithoutData(): string[] {
-        return difference(
+        return _.difference(
             this.selectedEntityNames,
             this.series.map((s) => s.seriesName)
         )
@@ -712,24 +696,6 @@ export class ScatterPlotChart
 
     componentDidMount(): void {
         exposeInstanceOnWindow(this)
-    }
-
-    renderComparisonLines(): React.ReactElement | void {
-        if (!this.comparisonLines) return
-
-        return (
-            <>
-                {this.comparisonLines.map((line, i) => (
-                    <ComparisonLine
-                        key={i}
-                        dualAxis={this.dualAxis}
-                        comparisonLine={line}
-                        baseFontSize={this.fontSize}
-                        backgroundColor={this.manager.backgroundColor}
-                    />
-                ))}
-            </>
-        )
     }
 
     renderSidebar(): React.ReactElement {
@@ -823,8 +789,8 @@ export class ScatterPlotChart
                     dualAxis={this.dualAxis}
                     showTickMarks={false}
                     detailsMarker={this.manager.detailsMarkerInSvg}
+                    backgroundColor={this.manager.backgroundColor}
                 />
-                {this.renderComparisonLines()}
                 {this.points}
                 {this.renderSidebar()}
             </>
@@ -839,7 +805,6 @@ export class ScatterPlotChart
                     showTickMarks={false}
                     detailsMarker={this.manager.detailsMarkerInSvg}
                 />
-                {this.renderComparisonLines()}
                 {this.points}
                 {this.renderSidebar()}
                 {this.tooltip}
@@ -872,7 +837,7 @@ export class ScatterPlotChart
             tooltipState: { target, position, fading },
         } = this
         const points = target.series.points ?? []
-        const values = excludeNullish(uniq([R.first(points), R.last(points)]))
+        const values = excludeNullish(_.uniq([R.first(points), R.last(points)]))
 
         let { startTime, endTime } = this.manager
         const { x: xStart, y: yStart } = R.first(values)?.time ?? {},
@@ -897,9 +862,9 @@ export class ScatterPlotChart
             points.length === 1
         ) {
             const { x, y, time } = points[0]
-            if (time.x !== time.y && isNumber(time.x) && isNumber(time.y)) {
-                startTime = min([time.x, time.y])
-                endTime = max([time.x, time.y])
+            if (time.x !== time.y && _.isNumber(time.x) && _.isNumber(time.y)) {
+                startTime = _.min([time.x, time.y])
+                endTime = _.max([time.x, time.y])
                 xValues = time.x < time.y ? [x, y] : [y, x]
                 xNotice = yNotice = yValues = []
                 xNoticeNeeded = yNoticeNeeded = false
@@ -907,7 +872,7 @@ export class ScatterPlotChart
         }
 
         const { isRelativeMode } = this.manager,
-            timeRange = uniq(excludeNullish([startTime, endTime]))
+            timeRange = _.uniq(excludeNullish([startTime, endTime]))
                 .map((t) => this.yColumn.formatTime(t))
                 .join(" to "),
             targetNotice =
@@ -1002,8 +967,7 @@ export class ScatterPlotChart
         return (
             // For faceted charts, we have to get the values of inputTable before it's filtered by
             // the faceting logic.
-            this.manager.colorScaleColumnOverride ??
-            // We need to use inputTable in order to get consistent coloring for a variable across
+            this.manager.colorScaleColumnOverride ?? // We need to use inputTable in order to get consistent coloring for a variable across
             // charts, e.g. each continent being assigned to the same color.
             // inputTable is unfiltered, so it contains every value that exists in the variable.
             this.inputTable.get(this.colorColumnSlug)
@@ -1076,7 +1040,7 @@ export class ScatterPlotChart
 
         if (this.yColumn.isMissing) return "Missing X axis variable"
 
-        if (isEmpty(this.allEntityNamesWithXAndY)) {
+        if (_.isEmpty(this.allEntityNamesWithXAndY)) {
             if (
                 this.manager.isRelativeMode &&
                 this.manager.hasTimeline &&
@@ -1087,7 +1051,7 @@ export class ScatterPlotChart
             return "No entities with data for both X and Y"
         }
 
-        if (isEmpty(this.series)) return "No matching data"
+        if (_.isEmpty(this.series)) return "No matching data"
 
         return ""
     }
@@ -1203,7 +1167,7 @@ export class ScatterPlotChart
         const maxLineWidth = SCATTER_LINE_MAX_WIDTH
         const maxPointRadius = Math.min(
             SCATTER_POINT_MAX_RADIUS,
-            round(
+            _.round(
                 Math.min(this.innerBounds.width, this.innerBounds.height) *
                     0.06,
                 1
@@ -1421,7 +1385,7 @@ export class ScatterPlotChart
 
     @computed get series(): ScatterSeries[] {
         return Object.entries(
-            groupBy(this.allPointsBeforeEndpointsFilter, (p) => p.entityName)
+            _.groupBy(this.allPointsBeforeEndpointsFilter, (p) => p.entityName)
         ).map(([entityName, points]) => {
             const series: ScatterSeries = {
                 seriesName: entityName,

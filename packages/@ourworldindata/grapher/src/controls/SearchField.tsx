@@ -4,24 +4,25 @@ import {
 } from "@fortawesome/free-solid-svg-icons"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import * as React from "react"
+import { forwardRef } from "react"
 import cx from "classnames"
 import { isTouchDevice } from "@ourworldindata/utils"
 
-export function SearchField({
-    className,
-    value,
-    placeholder,
-    trackNote,
-    onChange,
-    onClear,
-}: {
-    className?: string
-    value: string
-    placeholder: string
-    trackNote: string
-    onChange: (value: string) => void
-    onClear: () => void
-}): React.ReactElement {
+export const SearchField = forwardRef<
+    HTMLInputElement,
+    {
+        className?: string
+        value: string
+        placeholder: string
+        trackNote: string
+        onChange: (value: string) => void
+        onClear: () => void
+        onKeyDown?: (event: KeyboardEvent) => void
+    }
+>(function SearchField(
+    { className, value, placeholder, trackNote, onChange, onClear, onKeyDown },
+    ref
+): React.ReactElement {
     return (
         <div
             className={cx(className, "grapher-search-field", {
@@ -30,9 +31,11 @@ export function SearchField({
         >
             <FontAwesomeIcon className="search-icon" icon={faMagnifyingGlass} />
             <input
+                ref={ref}
                 type="search"
                 value={value}
                 onChange={(event) => onChange(event.currentTarget.value)}
+                onKeyDown={(event) => onKeyDown?.(event.nativeEvent)}
                 data-track-note={trackNote}
                 aria-label={placeholder}
                 // prevent auto-zoom on ios
@@ -57,4 +60,4 @@ export function SearchField({
             )}
         </div>
     )
-}
+})

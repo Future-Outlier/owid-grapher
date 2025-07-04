@@ -1,13 +1,9 @@
+import * as _ from "lodash-es"
 import { scaleLog, scaleLinear, ScaleLinear, ScaleLogarithmic } from "d3-scale"
 import { observable, computed } from "mobx"
 import {
     rollingMap,
-    min,
-    uniq,
-    sortBy,
-    max,
     numberMagnitude,
-    sortedUniqBy,
     Bounds,
     DEFAULT_BOUNDS,
     AxisAlign,
@@ -18,15 +14,19 @@ import {
     TickFormattingOptions,
     Tickmark,
     ValueRange,
-    cloneDeep,
     OwidVariableRoundingMode,
 } from "@ourworldindata/utils"
+import { ComparisonLineConfig } from "@ourworldindata/types"
 import { AxisConfig, AxisManager } from "./AxisConfig"
 import { MarkdownTextWrap } from "@ourworldindata/components"
 import { ColumnTypeMap, CoreColumn } from "@ourworldindata/core-table"
-import { GRAPHER_FONT_SCALE_12 } from "../core/GrapherConstants.js"
+import {
+    GRAPHER_FONT_SCALE_10_5,
+    GRAPHER_FONT_SCALE_12,
+} from "../core/GrapherConstants.js"
 import { makeAxisLabel } from "../chart/ChartUtils"
 import * as R from "remeda"
+import { isValidVerticalComparisonLineConfig } from "../comparisonLine/ComparisonLineHelpers"
 
 interface TickLabelPlacement {
     value: number
@@ -159,11 +159,11 @@ abstract class AbstractAxis {
     ): this {
         const left =
             domain[0] !== undefined
-                ? min([this.domain[0], domain[0]])
+                ? _.min([this.domain[0], domain[0]])
                 : this.domain[0]
         const right =
             domain[1] !== undefined
-                ? max([this.domain[1], domain[1]])
+                ? _.max([this.domain[1], domain[1]])
                 : this.domain[1]
         this.domain = [left ?? 0, right ?? 0]
         return this
@@ -195,14 +195,14 @@ abstract class AbstractAxis {
 
         // the band width is the smallest distance between
         // two adjacent values placed on the axis
-        const sortedValues = sortBy(values)
+        const sortedValues = _.sortBy(values)
         const positions = sortedValues.map((value) => scale(value))
         const diffs = positions
             .slice(1)
             .map((pos, index) => pos - positions[index])
-        const bandWidth = min(diffs) ?? 0
+        const bandWidth = _.min(diffs) ?? 0
 
-        return min([bandWidth, maxBandWidth]) ?? 0
+        return _.min([bandWidth, maxBandWidth]) ?? 0
     }
 
     /**
@@ -420,7 +420,7 @@ abstract class AbstractAxis {
             )
         }
 
-        return uniq(ticks)
+        return _.uniq(ticks)
     }
 
     private getTickFormattingOptions(): TickFormattingOptions {
@@ -450,7 +450,7 @@ abstract class AbstractAxis {
         // See: https://github.com/d3/d3-array/blob/master/README.md#ticks
         //
         // -@danielgavrilov, 2020-05-27
-        const minDist = min(
+        const minDist = _.min(
             rollingMap(this.baseTicks, (a, b) => Math.abs(a.value - b.value))
         )
         if (minDist !== undefined) {
@@ -552,7 +552,7 @@ abstract class AbstractAxis {
         if (axisLabel.unit) {
             return MarkdownTextWrap.fromFragments({
                 main: { text: axisLabel.mainLabel, bold: true },
-                secondary: { text: axisLabel.unit },
+                secondary: { text: `(${axisLabel.unit})` },
                 newLine: "avoid-wrap",
                 textWrapProps,
             })
@@ -599,7 +599,7 @@ export class HorizontalAxis extends AbstractAxis {
     @computed get height(): number {
         if (this.hideAxis) return 0
         const { labelOffset, tickPadding } = this
-        const maxTickHeight = max(this.tickLabels.map((tick) => tick.height))
+        const maxTickHeight = _.max(this.tickLabels.map((tick) => tick.height))
         const tickHeight = maxTickHeight ? maxTickHeight + tickPadding : 0
         return Math.max(tickHeight + labelOffset, this.config.minSize ?? 0)
     }
@@ -636,18 +636,19 @@ export class HorizontalAxis extends AbstractAxis {
         // sort by value, then priority.
         // this way, we don't end up with two ticks of the same value but different priorities.
         // instead, we deduplicate by choosing the highest priority (i.e. lowest priority value).
-        const sortedTicks = sortBy(ticks, [
+        const sortedTicks = _.sortBy(ticks, [
             (t): number => t.value,
             (t): number => t.priority,
         ])
-        return sortedUniqBy(sortedTicks, (t) => t.value)
+        return _.sortedUniqBy(sortedTicks, (t) => t.value)
     }
 
     @computed get tickLabels(): TickLabelPlacement[] {
         // Get ticks with coordinates, sorted by priority
-        const tickLabels = sortBy(this.baseTicks, (tick) => tick.priority).map(
-            (tick) => this.placeTickLabel(tick.value)
-        )
+        const tickLabels = _.sortBy(
+            this.baseTicks,
+            (tick) => tick.priority
+        ).map((tick) => this.placeTickLabel(tick.value))
         const visibleTickLabels = hideOverlappingTickLabels(tickLabels, {
             padding: 3,
         })
@@ -722,7 +723,7 @@ export class VerticalAxis extends AbstractAxis {
     @computed get width(): number {
         if (this.hideAxis) return 0
         const { tickPadding, labelOffsetLeft } = this
-        const maxTickWidth = max(this.tickLabels.map((tick) => tick.width))
+        const maxTickWidth = _.max(this.tickLabels.map((tick) => tick.width))
         const tickWidth =
             maxTickWidth !== undefined ? maxTickWidth + tickPadding : 0
         return Math.max(tickWidth + labelOffsetLeft, this.config.minSize ?? 0)
@@ -739,9 +740,10 @@ export class VerticalAxis extends AbstractAxis {
     @computed get tickLabels(): TickLabelPlacement[] {
         const { domain } = this
 
-        const tickLabels = sortBy(this.baseTicks, (tick) => tick.priority).map(
-            (tick) => this.placeTickLabel(tick.value)
-        )
+        const tickLabels = _.sortBy(
+            this.baseTicks,
+            (tick) => tick.priority
+        ).map((tick) => this.placeTickLabel(tick.value))
 
         // hide overlapping ticks, and allow for some padding
         let visibleTicks = hideOverlappingTickLabels(tickLabels, { padding: 3 })
@@ -754,7 +756,7 @@ export class VerticalAxis extends AbstractAxis {
         // if we still have too few ticks, de-prioritize the zero tick
         // if it's a start or end value and drawn as a solid line
         if (visibleTicks.length < this.minTicks) {
-            const updatedBaseTicks = cloneDeep(this.baseTicks)
+            const updatedBaseTicks = _.cloneDeep(this.baseTicks)
             if (domain[0] === 0 || domain[1] === 0) {
                 const zeroIndex = updatedBaseTicks
                     .map((tick) => tick.value)
@@ -767,7 +769,7 @@ export class VerticalAxis extends AbstractAxis {
                 }
             }
 
-            const tickLabels = sortBy(
+            const tickLabels = _.sortBy(
                 updatedBaseTicks,
                 (tick) => tick.priority
             ).map((tick) => this.placeTickLabel(tick.value))
@@ -801,6 +803,7 @@ interface DualAxisProps {
     bounds?: Bounds
     horizontalAxis: HorizontalAxis
     verticalAxis: VerticalAxis
+    comparisonLines?: ComparisonLineConfig[]
 }
 
 // DualAxis has the important task of coordinating two axes so that they work together!
@@ -851,11 +854,33 @@ export class DualAxis {
                 })
                 // make space for the y-axis label if plotted above the axis
                 .padTop(this.props.verticalAxis.labelOffsetTop)
+                // make space for vertical comparison line labels if any
+                .padTop(this.comparisonLineLabelOffset)
         )
     }
 
     @computed get bounds(): Bounds {
         return this.props.bounds ?? DEFAULT_BOUNDS
+    }
+
+    @computed get comparisonLines(): ComparisonLineConfig[] {
+        return this.props.comparisonLines ?? []
+    }
+
+    @computed get comparisonLineLabelFontSize(): number {
+        return Math.floor(
+            GRAPHER_FONT_SCALE_10_5 * this.props.verticalAxis.fontSize
+        )
+    }
+
+    @computed private get comparisonLineLabelOffset(): number {
+        const hasVerticalComparisonLines = this.comparisonLines.some((line) =>
+            isValidVerticalComparisonLineConfig(line)
+        )
+
+        if (!hasVerticalComparisonLines) return 0
+
+        return this.comparisonLineLabelFontSize
     }
 }
 

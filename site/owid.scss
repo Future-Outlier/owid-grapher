@@ -37,16 +37,21 @@
 @import "../packages/@ourworldindata/explorer/src/ExplorerControls.scss";
 
 @import "css/grid.scss";
+@import "css/grid-margin-overrides.scss";
 @import "css/layout.scss";
 @import "css/general.scss";
 @import "css/noscript.scss";
 @import "./ExplorerIndexPage.scss";
 @import "./collections/CollectionsPage.scss";
 @import "./SiteSearchNavigation.scss";
-@import "./DataCatalog/DataCatalog.scss";
+@import "./search/Search.scss";
 @import "./search/Autocomplete.scss";
 @import "./search/ChartHit.scss";
-@import "./search/Search.scss";
+@import "./search/SearchActiveFilters.scss";
+@import "./search/SearchFilterPill.scss";
+@import "./search/SearchAutocompleteItemContents.scss";
+@import "./search/SearchAutocomplete.scss";
+@import "./search/DEPRECATEDSearch.scss";
 @import "./SiteLogos.scss";
 @import "./SiteNavigation.scss";
 @import "./SiteNavigationToggle.scss";
@@ -102,8 +107,10 @@
 @import "./gdocs/components/KeyInsights.scss";
 @import "./gdocs/components/AllCharts.scss";
 @import "./gdocs/components/AdditionalCharts.scss";
+@import "./gdocs/components/Recirc.scss";
 @import "./gdocs/components/ResearchAndWriting.scss";
 @import "./gdocs/components/Chart.scss";
+@import "./gdocs/components/Expander.scss";
 @import "./gdocs/components/ExplorerTiles.scss";
 @import "./gdocs/components/KeyIndicator.scss";
 @import "./gdocs/components/KeyIndicatorCollection.scss";
@@ -118,7 +125,10 @@
 @import "./DataPageContent.scss";
 @import "./multiDim/MultiDim.scss";
 @import "./multiDim/MultiDimDataPageContent.scss";
+@import "./multiDim/DimensionDropdown.scss";
+@import "./multiDim/MultiDimDropdowns.scss";
 @import "./multiDim/MultiDimDataPageSettingsPanel.scss";
+@import "./multiDim/MultiDimEmbedSettingsPanel.scss";
 @import "./GrapherImage.scss";
 @import "./KeyDataTable.scss";
 @import "./MetadataSection.scss";

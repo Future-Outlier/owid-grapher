@@ -116,15 +116,6 @@
         margin-bottom: 24px;
     }
 
-    // Remove some margins since margins don't collapse in display: grid.
-    .article-block__side-by-side,
-    .article-block__sticky-left,
-    .article-block__sticky-right {
-        @include md-up {
-            margin: 0;
-        }
-    }
-
     .article-block__side-by-side {
         :first-child {
             margin-top: 0;

@@ -244,10 +244,21 @@ body {
     line-height: calc(4 / 3);
     font-weight: 400;
     letter-spacing: 0;
+    margin-top: 32px;
+    margin-bottom: 16px;
 }
 
 .subtitle-1 {
     @include subtitle-1;
+}
+
+@mixin subtitle-1-bold {
+    @include subtitle-1;
+    font-weight: 700;
+}
+
+.subtitle-1-bold {
+    @include subtitle-1-bold;
 }
 
 @mixin subtitle-2 {
@@ -315,6 +326,15 @@ body {
 
 .body-1-regular-superscript {
     @include body-1-regular-superscript;
+}
+
+@mixin body-1-bold {
+    @include body-1-regular;
+    font-weight: 700;
+}
+
+.body-1-bold {
+    @include body-1-bold;
 }
 
 @mixin body-2-regular {
@@ -426,7 +446,7 @@ body {
     font-size: 0.8125rem;
     font-weight: 500;
     letter-spacing: 0.01em;
-    line-height: 1.25;
+    line-height: normal;
 }
 
 .label-2-medium {
@@ -438,11 +458,23 @@ body {
     font-size: 0.8125rem;
     font-weight: 400;
     letter-spacing: 0.01em;
-    line-height: 0.833;
+    line-height: normal;
 }
 
 .label-2-regular {
     @include label-2-regular;
+}
+
+@mixin label-2-bold {
+    font-family: $sans-serif-font-stack;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: normal;
+    letter-spacing: 0.01em;
+}
+
+.label-2-bold {
+    @include label-2-bold;
 }
 
 @mixin note-1-medium {
@@ -455,4 +487,28 @@ body {
 
 .note-1-medium {
     @include note-1-medium;
+}
+
+@mixin note-2-regular {
+    font-family: $sans-serif-font-stack;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    letter-spacing: 0.22px;
+}
+
+.note-2-regular {
+    @include note-2-regular;
+}
+
+@mixin note-13-medium {
+    font-family: $sans-serif-font-stack;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1rem;
+}
+
+.note-13-medium {
+    @include note-13-medium;
 }

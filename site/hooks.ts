@@ -1,17 +1,11 @@
-import {
-    useEffect,
-    RefObject,
-    useState,
-    useRef,
-    useCallback,
-    useMemo,
-} from "react"
+import * as _ from "lodash-es"
+import { useEffect, RefObject, useState, useCallback, useMemo } from "react"
+import { useSyncExternalStore } from "use-sync-external-store/shim"
 import { MultiEmbedderSingleton } from "./multiembedder/MultiEmbedder.js"
 import {
     Bounds,
-    debounce,
     DEFAULT_BOUNDS,
-    throttle,
+    getWindowQueryStr,
 } from "@ourworldindata/utils"
 import { useResizeObserver } from "usehooks-ts"
 import { reaction } from "mobx"
@@ -56,7 +50,7 @@ export const useScrollDirection = () => {
             lastScrollY = scrollY
         }
 
-        const updateDirectionThrottled = throttle(() => {
+        const updateDirectionThrottled = _.throttle(() => {
             updateDirection()
         }, 500)
 
@@ -71,18 +65,18 @@ export const useScrollDirection = () => {
 
 export const useEmbedChart = (
     activeChartIdx: number,
-    refChartContainer: React.RefObject<HTMLDivElement>
+    refChartContainer: React.RefObject<HTMLDivElement>,
+    isPreviewing: boolean
 ) => {
     useEffect(() => {
         if (refChartContainer.current) {
             // Track newly injected <figure> elements in embedder
-            MultiEmbedderSingleton.observeFigures(refChartContainer.current)
+            MultiEmbedderSingleton.observeFigures(
+                refChartContainer.current,
+                isPreviewing
+            )
         }
-    }, [activeChartIdx, refChartContainer])
-}
-
-export const useDebounceCallback = (callback: any, delay: number) => {
-    return useRef(debounce(callback, delay)).current
+    }, [activeChartIdx, refChartContainer, isPreviewing])
 }
 
 export const useTriggerOnEscape = (trigger: VoidFunction) => {
@@ -121,7 +115,7 @@ export const useElementBounds = (
     const updateBoundsThrottled = useMemo(
         () =>
             throttleTime !== undefined
-                ? throttle(
+                ? _.throttle(
                       updateBoundsImmediately,
                       throttleTime,
 
@@ -197,4 +191,50 @@ export const useFocusTrap = (
             document.removeEventListener("keydown", handleKeyDown)
         }
     }, [ref, isActive])
+}
+
+declare global {
+    interface Window {
+        navigation?: {
+            addEventListener: (type: string, listener: () => void) => void
+            removeEventListener: (type: string, listener: () => void) => void
+        }
+    }
+}
+
+export const useWindowQueryParams = () => {
+    function subscribe(callback: () => void) {
+        const navigation = window.navigation
+        if (navigation) {
+            // At the time of writing (June 2025), the Navigation API is only
+            // available in Chrome/Edge 102+, and not in Firefox or Safari.
+            // https://caniuse.com/mdn-api_navigation
+            navigation.addEventListener("navigatesuccess", callback)
+            return () => {
+                navigation.removeEventListener("navigatesuccess", callback)
+            }
+        } else {
+            // Fall back to polling.
+            let lastQueryString = getWindowQueryStr()
+            const interval = setInterval(() => {
+                const currentQueryString = getWindowQueryStr()
+                if (currentQueryString !== lastQueryString) {
+                    lastQueryString = currentQueryString
+                    callback()
+                }
+            }, 1000)
+            return () => clearInterval(interval)
+        }
+    }
+
+    function getSnapshot() {
+        if (typeof window === "undefined") return ""
+        return getWindowQueryStr()
+    }
+
+    function getServerSnapshot() {
+        return ""
+    }
+
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }
