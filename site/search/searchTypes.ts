@@ -1,5 +1,10 @@
 import { OwidGdocType } from "@ourworldindata/types"
-import { BaseHit, Hit } from "instantsearch.js/es/types/results.js"
+import { SearchResponse, SearchForFacetValuesResponse } from "instantsearch.js"
+import {
+    BaseHit,
+    Hit,
+    HitHighlightResult,
+} from "instantsearch.js/es/types/results.js"
 
 export enum WordpressPageType {
     Other = "other",
@@ -108,3 +113,134 @@ export const searchCategoryFilters: [string, SearchCategoryFilter][] = [
     ["Research & Writing", SearchIndexName.Pages],
     ["Charts", SearchIndexName.ExplorerViewsMdimViewsAndCharts],
 ]
+
+/**
+ * This is a type that algolia doesn't export but is necessary to work with the algolia client
+ * Effectively the same as Awaited<ReturnType<SearchClient["search"]>>, but generic
+ */
+export type MultipleQueriesResponse<TObject> = {
+    results: Array<SearchResponse<TObject> | SearchForFacetValuesResponse>
+}
+
+/**
+ * This is the type for the hits that we get back from algolia when we search
+ * response.results[0].hits is an array of these
+ */
+export type IDataCatalogHit = {
+    title: string
+    slug: string
+    availableEntities: string[]
+    originalAvailableEntities?: string[]
+    objectID: string
+    variantName: string | null
+    type: ChartRecordType
+    queryParams: string
+    __position: number
+    _highlightResult?: HitHighlightResult
+    _snippetResult?: HitHighlightResult
+}
+
+// SearchResponse adds the extra fields from Algolia: page, nbHits, etc
+export type DataCatalogSearchResult = SearchResponse<IDataCatalogHit>
+
+// We add a title field to the SearchResponse for the ribbons
+export type DataCatalogRibbonResult = SearchResponse<IDataCatalogHit> & {
+    title: string
+}
+
+export type DataCatalogCache = {
+    ribbons: Map<string, DataCatalogRibbonResult[]>
+    search: Map<string, DataCatalogSearchResult>
+}
+
+export type ScoredSearchResult = {
+    name: string
+    score: number
+}
+
+export enum FilterType {
+    COUNTRY = "country",
+    TOPIC = "topic",
+    QUERY = "query",
+}
+
+export type Filter = {
+    type: FilterType
+    name: string
+}
+
+export type SearchState = Readonly<{
+    query: string
+    filters: Filter[]
+    requireAllCountries: boolean
+    page: number
+}>
+
+type AddFilterAction = {
+    type: "addFilter"
+    filter: Filter
+}
+type RemoveFilterAction = {
+    type: "removeFilter"
+    filter: Filter
+}
+type AddTopicAction = {
+    type: "addTopic"
+    topic: string
+}
+type RemoveTopicAction = {
+    type: "removeTopic"
+    topic: string
+}
+type SetQueryAction = {
+    type: "setQuery"
+    query: string
+}
+type AddCountryAction = {
+    type: "addCountry"
+    country: string
+}
+type RemoveCountryAction = {
+    type: "removeCountry"
+    country: string
+}
+type ToggleRequireAllCountriesAction = {
+    type: "toggleRequireAllCountries"
+}
+type SetStateAction = {
+    type: "setState"
+    state: SearchState
+}
+type SetPageAction = {
+    type: "setPage"
+    page: number
+}
+type ResetAction = {
+    type: "reset"
+}
+
+export type SearchAction =
+    | AddFilterAction
+    | RemoveFilterAction
+    | AddCountryAction
+    | AddTopicAction
+    | RemoveCountryAction
+    | RemoveTopicAction
+    | SetPageAction
+    | SetQueryAction
+    | SetStateAction
+    | ToggleRequireAllCountriesAction
+    | ResetAction
+
+export interface SearchAutocompleteContextType {
+    activeIndex: number
+    setActiveIndex: (index: number) => void
+    suggestions: Filter[]
+    setSuggestions: (suggestions: Filter[]) => void
+    showSuggestions: boolean
+    setShowSuggestions: (isOpen: boolean) => void
+    onSelectActiveItem: () => void
+    registerSelectionHandler: (
+        handler: (filter: Filter, index: number) => void
+    ) => void
+}

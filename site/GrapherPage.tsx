@@ -1,3 +1,4 @@
+import * as _ from "lodash-es"
 import {
     getVariableDataRoute,
     getVariableMetadataRoute,
@@ -9,7 +10,6 @@ import {
     RelatedChart,
     serializeJSONForHTML,
     GrapherInterface,
-    uniq,
     SiteFooterContext,
     Url,
 } from "@ourworldindata/utils"
@@ -17,7 +17,7 @@ import { MarkdownTextWrap } from "@ourworldindata/components"
 import {
     HIDE_IF_JS_DISABLED_CLASSNAME,
     HIDE_IF_JS_ENABLED_CLASSNAME,
-    ArchivedChartOrArchivePageMeta,
+    ArchiveContext,
 } from "@ourworldindata/types"
 import urljoin from "url-join"
 import {
@@ -41,7 +41,8 @@ export const GrapherPage = (props: {
     relatedArticles?: PostReference[]
     baseUrl: string
     baseGrapherUrl: string
-    archivedChartInfo?: ArchivedChartOrArchivePageMeta
+    archivedChartInfo?: ArchiveContext
+    isPreviewing?: boolean
 }) => {
     const {
         grapher,
@@ -50,6 +51,7 @@ export const GrapherPage = (props: {
         baseGrapherUrl,
         baseUrl,
         archivedChartInfo,
+        isPreviewing,
     } = props
     const pageTitle = grapher.title
     const canonicalUrl = urljoin(baseGrapherUrl, grapher.slug as string)
@@ -83,12 +85,12 @@ export const GrapherPage = (props: {
         ...grapher,
         adminBaseUrl: ADMIN_BASE_URL,
         bakedGrapherURL: BAKED_GRAPHER_URL,
-        dataApiUrl: DATA_API_URL,
     })}
 const archivedChartInfo = ${JSON.stringify(archivedChartInfo || undefined)}
-window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig, { archivedChartInfo })`
+const isPreviewing = ${isPreviewing}
+window.renderSingleGrapherOnGrapherPage(jsonConfig, "${DATA_API_URL}", { archivedChartInfo, isPreviewing })`
 
-    const variableIds = uniq(grapher.dimensions!.map((d) => d.variableId))
+    const variableIds = _.uniq(grapher.dimensions!.map((d) => d.variableId))
 
     const isOnArchivalPage = archivedChartInfo?.type === "archive-page"
     const assetMaps = isOnArchivalPage ? archivedChartInfo.assets : undefined
@@ -102,6 +104,7 @@ window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig, { archivedChartInfo 
                 imageUrl={imageUrl}
                 baseUrl={baseUrl}
                 staticAssetMap={assetMaps?.static}
+                archivedChartInfo={archivedChartInfo}
             >
                 <meta property="og:image:width" content={imageWidth} />
                 <meta property="og:image:height" content={imageHeight} />
@@ -111,9 +114,11 @@ window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig, { archivedChartInfo 
                     [
                         getVariableDataRoute(DATA_API_URL, variableId, {
                             assetMap: assetMaps?.runtime,
+                            noCache: isPreviewing,
                         }),
                         getVariableMetadataRoute(DATA_API_URL, variableId, {
                             assetMap: assetMaps?.runtime,
+                            noCache: isPreviewing,
                         }),
                     ].map((href) => (
                         <link
@@ -194,6 +199,7 @@ window.Grapher.renderSingleGrapherOnGrapherPage(jsonConfig, { archivedChartInfo 
                     archiveInfo={
                         isOnArchivalPage ? archivedChartInfo : undefined
                     }
+                    isPreviewing={isPreviewing}
                 />
                 <script
                     type="module"

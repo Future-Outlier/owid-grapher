@@ -1,4 +1,5 @@
-import { Url, QueryParams, identity, omit } from "@ourworldindata/utils"
+import * as _ from "lodash-es"
+import { Url, QueryParams } from "@ourworldindata/utils"
 
 import { EXPLORERS_ROUTE_FOLDER } from "../ExplorerConstants.js"
 
@@ -19,7 +20,7 @@ export const transformQueryParams = (
     oldQueryParams: Readonly<QueryParams>,
     transformMap: QueryParamTransformMap
 ) => {
-    const newQueryParams = omit(
+    const newQueryParams = _.omit(
         oldQueryParams,
         ...Object.keys(transformMap)
     ) as QueryParams
@@ -27,7 +28,7 @@ export const transformQueryParams = (
         if (!(oldParamName in oldQueryParams)) continue
         const { newName, transformValue } = transformMap[oldParamName]
         const name = newName ?? oldParamName
-        const transform = transformValue ?? identity
+        const transform = transformValue ?? _.identity
         newQueryParams[name] = transform(oldQueryParams[oldParamName])
     }
     return newQueryParams

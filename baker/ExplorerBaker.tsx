@@ -110,7 +110,10 @@ export const transformExplorerProgramToResolveCatalogPaths = async (
         const columnDefTable = new CoreTable(
             newProgram.getBlock(lineNoInProgram)
         )
-        const newColumnDefsTable = columnDefTable.combineColumns(
+
+        // Combine the variableId and catalogPath columns into a single variableId column.
+        // During the combination, catalog paths are mapped to their corresponding indicator ID
+        let newColumnDefsTable = columnDefTable.combineColumns(
             [
                 ColumnGrammar.variableId.keyword,
                 ColumnGrammar.catalogPath.keyword,
@@ -120,10 +123,10 @@ export const transformExplorerProgramToResolveCatalogPaths = async (
                 type: ColumnTypeNames.Integer,
             },
             (row) => {
-                const variableId = row[ColumnGrammar.variableId.keyword]
+                const variableId = row[ColumnGrammar.variableId.keyword].value
                 if (isNotErrorValueOrEmptyCell(variableId)) return variableId
 
-                const catalogPath = row[ColumnGrammar.catalogPath.keyword]
+                const catalogPath = row[ColumnGrammar.catalogPath.keyword].value
                 if (
                     isNotErrorValueOrEmptyCell(catalogPath) &&
                     typeof catalogPath === "string"
@@ -136,6 +139,33 @@ export const transformExplorerProgramToResolveCatalogPaths = async (
                 return ErrorValueTypes.NoMatchingVariableId
             }
         )
+
+        // Map catalog paths in the transform column to their corresponding indicator IDs
+        if (
+            columnDefTable.columnSlugs.includes(ColumnGrammar.transform.keyword)
+        ) {
+            newColumnDefsTable = newColumnDefsTable.replaceCells(
+                [ColumnGrammar.transform.keyword],
+                (transformString) => {
+                    if (
+                        isNotErrorValueOrEmptyCell(transformString) &&
+                        typeof transformString === "string"
+                    ) {
+                        const words = transformString.split(" ")
+                        const transformedWords = words.map(
+                            (maybeCatalogPath) =>
+                                catalogPathToIndicatorIdMap
+                                    .get(maybeCatalogPath)
+                                    ?.toString() ?? maybeCatalogPath
+                        )
+                        return transformedWords.join(" ")
+                    } else {
+                        return transformString
+                    }
+                }
+            )
+        }
+
         newProgram.updateBlock(lineNoInProgram, newColumnDefsTable.toMatrix())
     })
 

@@ -1,9 +1,9 @@
+import * as _ from "lodash-es"
 import * as db from "../../db.js"
-import { getUrlTarget } from "@ourworldindata/components"
+import { getUrlTarget, MarkdownTextWrap } from "@ourworldindata/components"
 import {
     LinkedChart,
     LinkedIndicator,
-    keyBy,
     ImageMetadata,
     OwidGdocErrorMessage,
     OwidGdocErrorMessageType,
@@ -12,18 +12,16 @@ import {
     OwidEnrichedGdocBlock,
     Span,
     traverseEnrichedSpan,
-    uniq,
     OwidGdocBaseInterface,
     OwidGdocPublicationContext,
     BreadcrumbItem,
     OwidGdocMinimalPostInterface,
     urlToSlug,
-    grabMetadataForGdocLinkedIndicator,
     GRAPHER_TAB_OPTIONS,
     DbInsertPostGdocLink,
     DbPlainTag,
     formatDate,
-    omit,
+    excludeUndefined,
 } from "@ourworldindata/utils"
 import { BAKED_GRAPHER_URL } from "../../../settings/serverSettings.js"
 import { docs as googleDocs } from "@googleapis/docs"
@@ -44,10 +42,7 @@ import {
 } from "./gdocUtils.js"
 import { OwidGoogleAuth } from "../../OwidGoogleAuth.js"
 import { enrichedBlocksToMarkdown } from "./enrichedToMarkdown.js"
-import {
-    getVariableMetadata,
-    getVariableOfDatapageIfApplicable,
-} from "../Variable.js"
+import { getDatapageIndicatorId } from "../Variable.js"
 import { createLinkForNarrativeChart, createLinkFromUrl } from "../Link.js"
 import {
     getMultiDimDataPageBySlug,
@@ -66,6 +61,11 @@ import {
     OwidGdoc,
     OwidGdocContent,
     OwidGdocType,
+    DbRawVariable,
+    VariablesTableName,
+    parseVariableDisplayConfig,
+    joinTitleFragments,
+    ArchivedPageVersion,
 } from "@ourworldindata/types"
 import {
     getAllNarrativeChartNames,
@@ -73,6 +73,43 @@ import {
 } from "../NarrativeChart.js"
 import { indexBy } from "remeda"
 import { getDods } from "../Dod.js"
+import {
+    getLatestChartArchivedVersionsIfEnabled,
+    getLatestMultiDimArchivedVersionsIfEnabled,
+} from "../archival/archivalDb.js"
+
+export async function getLinkedIndicatorsForCharts(
+    knex: db.KnexReadonlyTransaction,
+    indicatorsWithTitles: Array<{ indicatorId: number; chartTitle: string }>
+): Promise<LinkedIndicator[]> {
+    if (indicatorsWithTitles.length === 0) return []
+    const indicatorIds = indicatorsWithTitles.map((item) => item.indicatorId)
+    const rows = await knex<DbRawVariable>(VariablesTableName)
+        .select(
+            "id",
+            "name",
+            "display",
+            "titlePublic",
+            "attributionShort",
+            "titleVariant"
+        )
+        .whereIn("id", indicatorIds)
+    const metadataById = new Map(rows.map((row) => [row.id, row]))
+    return indicatorsWithTitles.map(({ indicatorId, chartTitle }) => {
+        const row = metadataById.get(indicatorId)
+        if (!row) {
+            throw new Error(`Variable with id ${indicatorId} not found`)
+        }
+        const display = parseVariableDisplayConfig(row.display)
+        const title =
+            row.titlePublic || chartTitle || display?.name || row.name || ""
+        const attributionShort = joinTitleFragments(
+            row.attributionShort ?? undefined,
+            row.titleVariant ?? undefined
+        )
+        return { id: indicatorId, title, attributionShort }
+    })
+}
 
 export class GdocBase implements OwidGdocBaseInterface {
     id!: string
@@ -246,7 +283,7 @@ export class GdocBase implements OwidGdocBaseInterface {
     }
 
     get linkedDocumentIds(): string[] {
-        return uniq(
+        return _.uniq(
             this.links
                 .filter((link) => link.linkType === "gdoc")
                 .map((link) => link.target)
@@ -603,6 +640,7 @@ export class GdocBase implements OwidGdocBaseInterface {
                         "cookie-notice",
                         "donors",
                         "expandable-paragraph",
+                        "expander",
                         "entry-summary",
                         "gray-section",
                         "heading",
@@ -666,6 +704,20 @@ export class GdocBase implements OwidGdocBaseInterface {
 
     async loadLinkedCharts(knex: db.KnexReadonlyTransaction): Promise<void> {
         const slugToIdMap = await mapSlugsToIds(knex)
+
+        const [archivedChartVersions, archivedMultiDimVersions] =
+            await Promise.all([
+                getLatestChartArchivedVersionsIfEnabled(
+                    knex,
+                    excludeUndefined(
+                        this.linkedChartSlugs.grapher.map(
+                            (slug) => slugToIdMap[slug]
+                        )
+                    )
+                ),
+                getLatestMultiDimArchivedVersionsIfEnabled(knex),
+            ])
+
         // TODO: rewrite this as a single query instead of N queries
         const linkedGrapherCharts = await Promise.all(
             this.linkedChartSlugs.grapher.map(async (originalSlug) => {
@@ -673,7 +725,16 @@ export class GdocBase implements OwidGdocBaseInterface {
                 if (chartId) {
                     const chart = await getChartConfigById(knex, chartId)
                     if (!chart) return
-                    return makeGrapherLinkedChart(chart.config, originalSlug)
+
+                    return makeGrapherLinkedChart(
+                        knex,
+                        chart.config,
+                        originalSlug,
+                        {
+                            archivedChartInfo:
+                                archivedChartVersions[chartId] || undefined,
+                        }
+                    )
                 } else {
                     const multiDim = await getMultiDimDataPageBySlug(
                         knex,
@@ -681,9 +742,15 @@ export class GdocBase implements OwidGdocBaseInterface {
                         { onlyPublished: false }
                     )
                     if (!multiDim) return
+
                     return makeMultiDimLinkedChart(
                         multiDim.config,
-                        originalSlug
+                        originalSlug,
+                        {
+                            archivedChartInfo:
+                                archivedMultiDimVersions[multiDim.id] ||
+                                undefined,
+                        }
                     )
                 }
             })
@@ -700,38 +767,38 @@ export class GdocBase implements OwidGdocBaseInterface {
             })
         )
 
-        this.linkedCharts = keyBy(
+        this.linkedCharts = _.keyBy(
             [...linkedGrapherCharts, ...linkedExplorerCharts],
             "originalSlug"
         )
     }
 
-    async loadLinkedIndicators(): Promise<void> {
-        const linkedIndicators = await Promise.all(
-            this.linkedKeyIndicatorSlugs.map(async (originalSlug) => {
-                const linkedChart = this.linkedCharts[originalSlug]
-                if (!linkedChart || !linkedChart.indicatorId) return
-                const metadata = await getVariableMetadata(
-                    linkedChart.indicatorId
-                )
-                const linkedIndicator: LinkedIndicator = {
-                    id: linkedChart.indicatorId,
-                    ...grabMetadataForGdocLinkedIndicator(metadata, {
-                        chartConfigTitle: linkedChart.title,
-                    }),
-                }
-                return linkedIndicator
+    async loadLinkedIndicators(
+        knex: db.KnexReadonlyTransaction
+    ): Promise<void> {
+        const indicatorsWithTitles = []
+        for (const originalSlug of this.linkedKeyIndicatorSlugs) {
+            const linkedChart = this.linkedCharts[originalSlug]
+            if (!linkedChart?.indicatorId) continue
+            indicatorsWithTitles.push({
+                indicatorId: linkedChart.indicatorId,
+                chartTitle: linkedChart.title,
             })
-        ).then(excludeNullish)
+        }
 
-        this.linkedIndicators = keyBy(linkedIndicators, "id")
+        const linkedIndicators = await getLinkedIndicatorsForCharts(
+            knex,
+            indicatorsWithTitles
+        )
+
+        this.linkedIndicators = _.keyBy(linkedIndicators, "id")
     }
 
     async loadLinkedDocuments(knex: db.KnexReadonlyTransaction): Promise<void> {
         const linkedDocuments: OwidGdocMinimalPostInterface[] =
             await getMinimalGdocPostsByIds(knex, this.linkedDocumentIds)
 
-        this.linkedDocuments = keyBy(linkedDocuments, "id")
+        this.linkedDocuments = _.keyBy(linkedDocuments, "id")
     }
 
     /**
@@ -752,7 +819,7 @@ export class GdocBase implements OwidGdocBaseInterface {
 
         this.imageMetadata = {
             ...this.imageMetadata,
-            ...keyBy(imageMetadata, "filename"),
+            ..._.keyBy(imageMetadata, "filename"),
         }
     }
 
@@ -763,7 +830,7 @@ export class GdocBase implements OwidGdocBaseInterface {
             knex,
             this.linkedNarrativeChartNames
         )
-        this.linkedNarrativeCharts = keyBy(result, "name")
+        this.linkedNarrativeCharts = _.keyBy(result, "name")
     }
 
     async fetchAndEnrichGdoc(): Promise<void> {
@@ -950,7 +1017,7 @@ export class GdocBase implements OwidGdocBaseInterface {
         await this.loadLinkedDocuments(knex)
         await this.loadImageMetadataFromDB(knex)
         await this.loadLinkedCharts(knex)
-        await this.loadLinkedIndicators() // depends on linked charts
+        await this.loadLinkedIndicators(knex) // depends on linked charts
         await this.loadNarrativeChartsInfo(knex)
         await this._loadSubclassAttachments(knex)
         await this.validate(knex)
@@ -962,7 +1029,7 @@ export class GdocBase implements OwidGdocBaseInterface {
         // shrink the object we send over the wire at the /gdoc/:id endpoint).
         // My hunch is that we'll want to clean up the class instance vs objects
         // divergence a bit in the near future - until then this can stay as is.
-        return omit(this, [
+        return _.omit(this, [
             "_enrichSubclassContent",
             "_filenameProperties",
             "_getSubclassEnrichedBlocks",
@@ -1051,23 +1118,31 @@ export async function getMinimalAuthorsByNames(
 }
 
 export async function makeGrapherLinkedChart(
+    knex: db.KnexReadonlyTransaction,
     config: GrapherInterface,
-    originalSlug: string
+    originalSlug: string,
+    { archivedChartInfo }: { archivedChartInfo?: ArchivedPageVersion } = {}
 ): Promise<LinkedChart> {
     const resolvedSlug = config.slug ?? ""
     const resolvedTitle = config.title ?? ""
+    const subtitle = new MarkdownTextWrap({
+        text: config.subtitle || "",
+        fontSize: 12,
+    }).plaintext
     const resolvedUrl = `${BAKED_GRAPHER_URL}/${resolvedSlug}`
     const tab = config.tab ?? GRAPHER_TAB_OPTIONS.chart
-    const datapageIndicator = await getVariableOfDatapageIfApplicable(config)
+    const indicatorId = await getDatapageIndicatorId(knex, config)
     return {
         configType: ChartConfigType.Grapher,
         originalSlug,
         title: resolvedTitle,
+        subtitle,
         tab,
         resolvedUrl,
         thumbnail: `${GRAPHER_DYNAMIC_THUMBNAIL_URL}/${resolvedSlug}.png`,
         tags: [],
-        indicatorId: datapageIndicator?.id,
+        indicatorId,
+        archivedChartInfo,
     }
 }
 
@@ -1097,7 +1172,8 @@ export function makeExplorerLinkedChart(
 
 export function makeMultiDimLinkedChart(
     config: MultiDimDataPageConfigEnriched,
-    slug: string
+    slug: string,
+    { archivedChartInfo }: { archivedChartInfo?: ArchivedPageVersion } = {}
 ): LinkedChart {
     let title = config.title.title
     const titleVariant = config.title.titleVariant
@@ -1110,5 +1186,6 @@ export function makeMultiDimLinkedChart(
         title,
         resolvedUrl: `${BAKED_GRAPHER_URL}/${slug}`,
         tags: [],
+        archivedChartInfo,
     }
 }

@@ -1,15 +1,10 @@
 // This implements the line labels that appear to the right of the lines/polygons in LineCharts/StackedAreas.
+import * as _ from "lodash-es"
 import * as React from "react"
 import {
     Bounds,
-    noop,
-    cloneDeep,
-    max,
-    min,
-    sortBy,
     makeIdForHumanConsumption,
     excludeUndefined,
-    sumBy,
 } from "@ourworldindata/utils"
 import { TextWrap, Halo, MarkdownTextWrap } from "@ourworldindata/components"
 import { computed } from "mobx"
@@ -147,11 +142,11 @@ class LineLabels extends React.Component<{
                             show={this.showTextOutline}
                             outlineWidth={
                                 GRAPHER_TEXT_OUTLINE_FACTOR *
-                                series.textWrapForRendering.fontSize
+                                series.textWrap.fontSize
                             }
                             outlineColor={this.textOutlineColor}
                         >
-                            {series.textWrapForRendering.renderSVG(
+                            {series.textWrap.renderSVG(
                                 labelText.x,
                                 labelText.y,
                                 {
@@ -441,17 +436,8 @@ export class LineLegend extends React.Component<LineLegendProps> {
             const fontWeight =
                 activeFontWeight ?? seriesFontWeight ?? globalFontWeight
 
-            // line labels might be focused/unfocused, which affects their font weight.
-            // if we used the actual font weight for measuring the text width,
-            // the layout would be jumpy when focusing/unfocusing a series.
-            const fontWeightsForMeasuring = { label: 700, value: 700 }
-            const fontWeightsForRendering = { label: fontWeight, value: 400 }
-            const textWrap = this.makeLabelTextWrap(series, {
-                fontWeights: fontWeightsForMeasuring,
-            })
-            const textWrapForRendering = this.makeLabelTextWrap(series, {
-                fontWeights: fontWeightsForRendering,
-            })
+            const fontWeights = { label: fontWeight, value: 400 }
+            const textWrap = this.makeLabelTextWrap(series, { fontWeights })
 
             const annotationTextWrap = this.makeAnnotationTextWrap(series)
             const annotationWidth = annotationTextWrap?.width ?? 0
@@ -462,7 +448,6 @@ export class LineLegend extends React.Component<LineLegendProps> {
             return {
                 ...series,
                 textWrap,
-                textWrapForRendering,
                 annotationTextWrap,
                 width: Math.max(textWrap.width, annotationWidth),
                 height: textWrap.height + annotationHeight,
@@ -472,7 +457,7 @@ export class LineLegend extends React.Component<LineLegendProps> {
 
     @computed private get maxLabelWidth(): number {
         const { sizedSeries = [] } = this
-        return max(sizedSeries.map((d) => d.width)) ?? 0
+        return _.max(sizedSeries.map((d) => d.width)) ?? 0
     }
 
     @computed get stableWidth(): number {
@@ -486,13 +471,13 @@ export class LineLegend extends React.Component<LineLegendProps> {
     }
 
     @computed get onMouseOver(): any {
-        return this.props.onMouseOver ?? noop
+        return this.props.onMouseOver ?? _.noop
     }
     @computed get onMouseLeave(): any {
-        return this.props.onMouseLeave ?? noop
+        return this.props.onMouseLeave ?? _.noop
     }
     @computed get onClick(): any {
-        return this.props.onClick ?? noop
+        return this.props.onClick ?? _.noop
     }
 
     @computed get legendX(): number {
@@ -564,14 +549,14 @@ export class LineLegend extends React.Component<LineLegendProps> {
         const [yLegendMin, yLegendMax] = this.legendY
 
         // ensure list is sorted by the visual position in ascending order
-        const sortedSeries = sortBy(
+        const sortedSeries = _.sortBy(
             this.visiblePlacedSeries,
             (label) => label.midY
         )
 
-        const groups: PlacedSeries[][] = cloneDeep(sortedSeries).map((mark) => [
-            mark,
-        ])
+        const groups: PlacedSeries[][] = _.cloneDeep(sortedSeries).map(
+            (mark) => [mark]
+        )
 
         let hasOverlap
 
@@ -624,8 +609,8 @@ export class LineLegend extends React.Component<LineLegendProps> {
                 series.level = currentLevel
                 prevSign = currentSign
             }
-            const minLevel = min(group.map((mark) => mark.level)) as number
-            const maxLevel = max(group.map((mark) => mark.level)) as number
+            const minLevel = _.min(group.map((mark) => mark.level)) as number
+            const maxLevel = _.max(group.map((mark) => mark.level)) as number
             for (const mark of group) {
                 mark.level -= minLevel
                 mark.totalLevels = maxLevel - minLevel + 1
@@ -646,7 +631,7 @@ export class LineLegend extends React.Component<LineLegendProps> {
 
     private computeHeight(series: PlacedSeries[]): number {
         return (
-            sumBy(series, (series) => series.bounds.height) +
+            _.sumBy(series, (series) => series.bounds.height) +
             (series.length - 1) * LEGEND_ITEM_MIN_SPACING
         )
     }
@@ -688,7 +673,7 @@ export class LineLegend extends React.Component<LineLegendProps> {
     }
 
     @computed private get maxLevel(): number {
-        return max(this.placedSeries.map((series) => series.totalLevels)) ?? 0
+        return _.max(this.placedSeries.map((series) => series.totalLevels)) ?? 0
     }
 
     render(): React.ReactElement {

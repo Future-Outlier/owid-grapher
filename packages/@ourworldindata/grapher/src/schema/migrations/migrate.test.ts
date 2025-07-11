@@ -1,9 +1,10 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { defaultGrapherConfig } from "../defaultGrapherConfig"
 import { migrateGrapherConfigToLatestVersion } from "./migrate"
-import { migrateFrom006To007 } from "./migrations"
+import { migrateFrom006To007, migrateFrom007To008 } from "./migrations"
 import { AnyConfigWithValidSchema } from "./helpers"
+import * as _ from "lodash-es"
 
 it("returns a valid config as is", () => {
     const validConfig = {
@@ -19,12 +20,18 @@ it("throws if the schema field is missing", () => {
     expect(() => migrateGrapherConfigToLatestVersion({})).toThrow()
 })
 
-it("throws if the schema field is invalid", () => {
-    expect(() =>
-        migrateGrapherConfigToLatestVersion({
-            $schema: "invalid",
-        })
-    ).toThrow()
+it("warns if the schema field is invalid", () => {
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(_.noop)
+
+    const invalidConfig = {
+        $schema: "invalid",
+    }
+    expect(migrateGrapherConfigToLatestVersion(invalidConfig)).toEqual(
+        invalidConfig
+    )
+
+    expect(consoleWarnSpy).toHaveBeenCalled()
+    consoleWarnSpy.mockRestore()
 })
 
 it("runs multiple migrations if necessary", () => {
@@ -97,4 +104,32 @@ it("migrates version 006 to 007 correctly", () => {
 
     // check that the map.region field is added
     expect(migrateFrom006To007(config)).toHaveProperty("map.region", "Europe")
+})
+
+it("migrates version 007 to 008 correctly", () => {
+    const config: AnyConfigWithValidSchema = {
+        $schema:
+            "https://files.ourworldindata.org/schemas/grapher-schema.007.json",
+        hasMapTab: true,
+        map: {
+            colorScale: {
+                customNumericMinValue: 0,
+                customNumericValues: [1, 2, 3],
+            },
+        },
+    }
+
+    const migrated = migrateFrom007To008(config)
+
+    // check that the $schema field is updated
+    expect(migrated).toHaveProperty(
+        "$schema",
+        "https://files.ourworldindata.org/schemas/grapher-schema.008.json"
+    )
+
+    expect(migrated).not.toHaveProperty("map.colorScale.customNumericMinValue")
+    expect(migrated).toHaveProperty(
+        "map.colorScale.customNumericValues",
+        [0, 1, 2, 3]
+    )
 })

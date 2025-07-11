@@ -4,7 +4,7 @@ import {
 } from "../OwidVariableDisplayConfigInterface.js"
 import { ColumnSlugs, EntityName } from "../domainTypes/CoreTableTypes.js"
 import { AxisAlign, Position } from "../domainTypes/Layout.js"
-import { Integer } from "../domainTypes/Various.js"
+import { Integer, OwidVariableId } from "../domainTypes/Various.js"
 import { DetailDictionary } from "../gdocTypes/Gdoc.js"
 import { observable } from "mobx"
 import {
@@ -15,6 +15,8 @@ import {
     GRAPHER_TAB_QUERY_PARAMS,
     GRAPHER_TAB_TYPES,
 } from "./GrapherConstants.js"
+import { OwidVariableDataMetadataDimensions } from "../OwidVariable.js"
+import { ArchiveContext } from "../domainTypes/Archive.js"
 
 export interface Box {
     x: number
@@ -86,7 +88,9 @@ export interface BasicChartInformation {
     variantName?: string | null
 }
 export interface RelatedChart extends BasicChartInformation {
+    chartId: number
     keyChartLevel?: KeyChartLevel
+    archivedChartInfo?: ArchiveContext | undefined
 }
 export enum DimensionProperty {
     y = "y",
@@ -321,10 +325,19 @@ export interface AxisConfigInterface {
     domainValues?: number[]
 }
 
-export interface ComparisonLineConfig {
+export interface VerticalComparisonLineConfig {
+    xEquals: number // x-coordinate of the vertical line
     label?: string
-    yEquals?: string
 }
+
+export interface CustomComparisonLineConfig {
+    yEquals?: string // line equation like "2*x^2" or "sqrt(x)"; defaults to "x"
+    label?: string
+}
+
+export type ComparisonLineConfig =
+    | VerticalComparisonLineConfig
+    | CustomComparisonLineConfig
 
 export enum LogoOption {
     owid = "owid",
@@ -339,6 +352,13 @@ export enum BinningStrategy {
     // The `manual` option is ignored in the algorithms below,
     // but it is stored and handled by the chart.
     manual = "manual",
+}
+
+export interface ProjectionColumnInfo {
+    projectedSlug: ColumnSlug
+    historicalSlug: ColumnSlug
+    combinedSlug: ColumnSlug
+    slugForIsProjectionColumn: ColumnSlug
 }
 
 export class ColorScaleConfigDefaults {
@@ -359,8 +379,6 @@ export class ColorScaleConfigDefaults {
     /** The *suggested* number of bins for the automatic binning algorithm */
     @observable binningStrategyBinCount?: number
 
-    /** The minimum bracket of the first bin */
-    @observable customNumericMinValue?: number
     /** Custom maximum brackets for each numeric bin. Only applied when strategy is `manual`. */
     @observable customNumericValues: number[] = []
     /**
@@ -416,7 +434,6 @@ export type ColorScaleConfigInterface = ColorScaleConfigDefaults
 //     colorSchemeInvert?: boolean
 //     binningStrategy?: BinningStrategy
 //     binningStrategyBinCount?: number
-//     customNumericMinValue?: number
 //     customNumericValues: number[]
 //     customNumericLabels: (string | undefined | null)[]
 //     customNumericColorsActive?: boolean
@@ -754,7 +771,6 @@ export const grapherKeysToSerialize = [
     // internals
     "adminBaseUrl",
     "bakedGrapherURL",
-    "dataApiUrl",
 ]
 
 export enum GrapherStaticFormat {
@@ -773,3 +789,7 @@ export enum GrapherWindowType {
     modal = "modal",
     drawer = "drawer",
 }
+
+export type AdditionalGrapherDataFetchFn = (
+    varId: OwidVariableId
+) => Promise<OwidVariableDataMetadataDimensions>

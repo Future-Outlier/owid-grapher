@@ -1,3 +1,4 @@
+import * as _ from "lodash-es"
 import * as React from "react"
 import { computed } from "mobx"
 import { observer } from "mobx-react"
@@ -5,7 +6,6 @@ import {
     Bounds,
     DEFAULT_BOUNDS,
     exposeInstanceOnWindow,
-    isEmpty,
     makeIdForHumanConsumption,
 } from "@ourworldindata/utils"
 import { MarkdownTextWrap } from "@ourworldindata/components"
@@ -43,7 +43,8 @@ import {
     GrapherChartOrMapType,
     GrapherChartType,
 } from "@ourworldindata/types"
-import { DataTable, DataTableManager } from "../dataTable/DataTable"
+import { DataTable } from "../dataTable/DataTable"
+import { DataTableManager } from "../dataTable/DataTableConstants"
 import {
     TimelineComponent,
     TIMELINE_HEIGHT,
@@ -87,6 +88,7 @@ export interface CaptionedChartManager
     isFaceted?: boolean
     isLineChartThatTurnedIntoDiscreteBarActive?: boolean
     isExportingForSocialMedia?: boolean
+    isExportingForWikimedia?: boolean
 
     // timeline
     hasTimeline?: boolean
@@ -419,29 +421,39 @@ export class CaptionedChart extends React.Component<CaptionedChartProps> {
                 <Header manager={this.manager} maxWidth={this.maxWidth} />
                 <VerticalSpace height={this.verticalPadding} />
 
-                {/* #2 [Controls] */}
-                {this.showControlsRow && this.renderControlsRow()}
-                {this.showControlsRow && (
-                    <VerticalSpace height={this.verticalPaddingSmall} />
+                {this.manager.isReady ? (
+                    <>
+                        {/* #2 [Controls] */}
+                        {this.showControlsRow && this.renderControlsRow()}
+                        {this.showControlsRow && (
+                            <VerticalSpace height={this.verticalPaddingSmall} />
+                        )}
+
+                        {/* #3 Chart/Map/Table */}
+                        {this.manager.isOnTableTab
+                            ? this.renderDataTable()
+                            : this.renderChartOrMap()}
+
+                        {/* #4 [Timeline] */}
+                        {this.manager.hasTimeline && (
+                            <VerticalSpace height={this.verticalPaddingSmall} />
+                        )}
+                        {this.manager.hasTimeline && this.renderTimeline()}
+
+                        {/* #5 Footer */}
+                        <VerticalSpace height={this.verticalPadding} />
+                        <Footer
+                            manager={this.manager}
+                            maxWidth={this.maxWidth}
+                        />
+
+                        {/* #6 [Related question] */}
+                        {this.showRelatedQuestion &&
+                            this.renderRelatedQuestion()}
+                    </>
+                ) : (
+                    this.renderLoadingIndicator()
                 )}
-
-                {/* #3 Chart/Map/Table */}
-                {this.manager.isOnTableTab
-                    ? this.renderDataTable()
-                    : this.renderChartOrMap()}
-
-                {/* #4 [Timeline] */}
-                {this.manager.hasTimeline && (
-                    <VerticalSpace height={this.verticalPaddingSmall} />
-                )}
-                {this.manager.hasTimeline && this.renderTimeline()}
-
-                {/* #5 Footer */}
-                <VerticalSpace height={this.verticalPadding} />
-                <Footer manager={this.manager} maxWidth={this.maxWidth} />
-
-                {/* #6 [Related question] */}
-                {this.showRelatedQuestion && this.renderRelatedQuestion()}
             </div>
         )
     }
@@ -533,9 +545,11 @@ export class StaticCaptionedChart extends CaptionedChart {
                     {this.manager.detailRenderers.map((detail, i) => {
                         previousOffset = yOffset
                         yOffset += detail.height + STATIC_EXPORT_DETAIL_SPACING
-                        return detail.renderSVG(0, previousOffset, {
-                            textProps: { key: i },
-                        })
+                        return (
+                            <React.Fragment key={i}>
+                                {detail.renderSVG(0, previousOffset)}
+                            </React.Fragment>
+                        )
                     })}
                 </g>
             </>
@@ -567,7 +581,10 @@ export class StaticCaptionedChart extends CaptionedChart {
 
         const includeDetailsInStaticExport =
             manager.shouldIncludeDetailsInStaticExport &&
-            !isEmpty(this.manager.detailRenderers)
+            !_.isEmpty(this.manager.detailRenderers)
+
+        const includeFontsStyle = !manager.isExportingForWikimedia
+        const includeBackgroundRect = !!manager.isExportingForWikimedia
 
         return (
             <svg
@@ -576,8 +593,16 @@ export class StaticCaptionedChart extends CaptionedChart {
                 height={height}
                 viewBox={`0 0 ${width} ${height}`}
             >
-                {this.fonts}
+                {includeFontsStyle && this.fonts}
                 {this.patterns}
+                {includeBackgroundRect && (
+                    <rect
+                        className="background-fill"
+                        fill={this.backgroundColor}
+                        width={width}
+                        height={height}
+                    />
+                )}
                 <StaticHeader
                     manager={manager}
                     maxWidth={maxWidth}

@@ -1,10 +1,10 @@
+import * as _ from "lodash-es"
 import * as db from "../../../db/db.js"
 import { ALGOLIA_INDEXING } from "../../../settings/serverSettings.js"
 import { chunkParagraphs } from "../../chunk.js"
 import {
     countries,
     Country,
-    keyBy,
     OwidGdocType,
     type RawPageview,
     OwidGdocPostInterface,
@@ -23,7 +23,7 @@ import {
 } from "../../../site/search/searchTypes.js"
 import { getAnalyticsPageviewsByUrlObj } from "../../../db/model/Pageview.js"
 import { getIndexName } from "../../../site/search/searchClient.js"
-import { ObjectWithObjectID } from "@algolia/client-search"
+import type { ObjectWithObjectID } from "@algolia/client-search"
 import { SearchIndex } from "algoliasearch"
 import { match, P } from "ts-pattern"
 import { gdocFromJSON } from "../../../db/model/Gdoc/GdocFactory.js"
@@ -225,7 +225,7 @@ export const getPagesRecords = async (knex: db.KnexReadonlyTransaction) => {
     const countryRecords = generateCountryRecords(countries, pageviews)
     const cloudflareImagesByFilename = await db
         .getCloudflareImages(knex)
-        .then((images) => keyBy(images, "filename"))
+        .then((images) => _.keyBy(images, "filename"))
 
     const gdocsRecords = generateGdocRecords(
         gdocs,
@@ -304,7 +304,7 @@ export async function indexIndividualGdocPost(
     const pageviews = await getAnalyticsPageviewsByUrlObj(knex)
     const cloudflareImagesByFilename = await db
         .getCloudflareImages(knex)
-        .then((images) => keyBy(images, "filename"))
+        .then((images) => _.keyBy(images, "filename"))
     const existingPageviews = pageviews[`/${indexedSlug}`]
     const pageviewsForGdoc = {
         [gdoc.slug]: existingPageviews || {

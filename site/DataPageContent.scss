@@ -58,17 +58,13 @@
     }
 
     .header__right {
-        @include sm-only {
-            padding-top: 16px;
-            padding-bottom: 16px;
-            border-top: 1px solid $blue-20;
-        }
+        margin-bottom: 16px;
+        padding-left: 24px;
+        border-left: 1px solid $blue-20;
+        align-self: start;
 
-        @include sm-up {
-            margin-bottom: 16px;
-            padding-left: 24px;
-            border-left: 1px solid $blue-20;
-            align-self: start;
+        @include sm-only {
+            display: none;
         }
     }
 
@@ -100,7 +96,9 @@
         }
         @include grid(12);
 
-        figure[data-grapher-src] {
+        figure[data-grapher-src],
+        figure.GrapherWithFallback__fallback,
+        figure.grapher-component {
             grid-column: span 12;
             margin: 0;
 
@@ -192,7 +190,8 @@
             margin-bottom: 0;
         }
 
-        figure[data-grapher-src] {
+        figure[data-grapher-src],
+        figure.grapher-component {
             height: $grapher-height;
         }
     }

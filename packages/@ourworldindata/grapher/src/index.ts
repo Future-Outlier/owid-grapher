@@ -7,6 +7,12 @@ export {
     type ColorScaleBin,
 } from "./color/ColorScaleBin"
 export { ChartDimension } from "./chart/ChartDimension"
+export { FetchingGrapher } from "./core/FetchingGrapher"
+export {
+    fetchInputTableForConfig,
+    getCachingInputTableFetcher,
+} from "./core/loadGrapherTableHelpers.js"
+export { loadVariableDataAndMetadata } from "./core/loadVariable.js"
 export {
     GRAPHER_ROUTE_FOLDER,
     GRAPHER_EMBEDDED_FIGURE_ATTR,
@@ -54,13 +60,17 @@ export {
 export { GlobalEntitySelector } from "./controls/globalEntitySelector/GlobalEntitySelector"
 export {
     Grapher,
+    GrapherState,
     type GrapherProgrammaticInterface,
     type GrapherManager,
 } from "./core/Grapher"
 export { GrapherAnalytics, EventCategory } from "./core/GrapherAnalytics"
 export { hydrateGlobalEntitySelectorIfAny } from "./controls/globalEntitySelector/GlobalEntitySelector"
 export { legacyToCurrentGrapherUrl } from "./core/GrapherUrlMigrations"
-export { legacyToOwidTableAndDimensions } from "./core/LegacyToOwidTable"
+export {
+    legacyToOwidTableAndDimensions,
+    legacyToOwidTableAndDimensionsWithMandatorySlug,
+} from "./core/LegacyToOwidTable"
 export { getErrorMessageRelatedQuestionUrl } from "./core/relatedQuestion"
 export { LoadingIndicator } from "./loadingIndicator/LoadingIndicator"
 export { MapChart } from "./mapCharts/MapChart"
@@ -86,10 +96,18 @@ export {
     SlideShowController,
 } from "./slideshowController/SlideShowController"
 export { defaultGrapherConfig } from "./schema/defaultGrapherConfig"
-export { migrateGrapherConfigToLatestVersion } from "./schema/migrations/migrate"
+export {
+    migrateGrapherConfigToLatestVersion,
+    migrateGrapherConfigToLatestVersionAndFailOnError,
+} from "./schema/migrations/migrate"
 export {
     generateGrapherImageSrcSet,
     getChartTypeFromConfig,
     getChartTypeFromConfigAndQueryParams,
 } from "./chart/ChartUtils.js"
+export {
+    renderGrapherIntoContainer,
+    renderSingleGrapherOnGrapherPage,
+} from "./core/GrapherUseHelpers.js"
 export { GeoFeatures } from "./mapCharts/GeoFeatures"
+export { isValidVerticalComparisonLineConfig } from "./comparisonLine/ComparisonLineHelpers"

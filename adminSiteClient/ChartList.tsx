@@ -1,3 +1,4 @@
+import * as _ from "lodash-es"
 import * as React from "react"
 import { observer } from "mobx-react"
 import { runInAction, observable, computed, action } from "mobx"
@@ -11,7 +12,6 @@ import {
     SortOrder,
 } from "@ourworldindata/types"
 import {
-    startCase,
     DbChartTagJoin,
     sortNumeric,
     queryParamsToStr,
@@ -26,6 +26,7 @@ import {
     highlightFunctionForSearchWords,
 } from "../adminShared/search.js"
 import { TextField } from "./Forms.js"
+import { ENV } from "../settings/clientSettings.js"
 
 // These properties are coming from OldChart.ts
 export interface ChartListItem {
@@ -96,12 +97,15 @@ export class ChartList extends React.Component<{
             )
             return
         }
-        if (
-            !window.confirm(
-                `Delete the chart ${chart.slug}? This action cannot be undone!`
-            )
-        )
-            return
+        // Create the confirmation message with staging warning if applicable
+        let confirmMessage = `Delete the chart ${chart.slug}? This action cannot be undone!`
+
+        if (ENV === "staging") {
+            confirmMessage +=
+                "\n\n⚠️ WARNING: You are on a staging server. Deleted charts are NOT synced to production servers. If this chart exists on production, it will remain there even after deletion here."
+        }
+
+        if (!window.confirm(confirmMessage)) return
 
         const json = await this.context.admin.requestJSON(
             `/api/charts/${chart.id}`,
@@ -311,7 +315,7 @@ export function showChartType(chart: ChartListItem): string {
     if (!chartType) return "Map"
 
     const displayType = GRAPHER_CHART_TYPES[chartType]
-        ? startCase(GRAPHER_CHART_TYPES[chartType])
+        ? _.startCase(GRAPHER_CHART_TYPES[chartType])
         : "Unknown"
 
     if (chart.tab === GRAPHER_TAB_OPTIONS.map) {

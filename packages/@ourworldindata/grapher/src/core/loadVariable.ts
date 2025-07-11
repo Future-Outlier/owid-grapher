@@ -1,5 +1,7 @@
 import {
+    ArchiveContext,
     AssetMap,
+    MultipleOwidVariableDataDimensionsMap,
     OwidVariableDataMetadataDimensions,
 } from "@ourworldindata/types"
 import { fetchWithRetry, readFromAssetMap } from "@ourworldindata/utils"
@@ -44,13 +46,13 @@ export const getVariableMetadataRoute = (
 export async function loadVariableDataAndMetadata(
     variableId: number,
     dataApiUrl: string,
-    assetMap?: AssetMap
+    options?: { assetMap?: AssetMap; noCache?: boolean }
 ): Promise<OwidVariableDataMetadataDimensions> {
     const dataPromise = fetchWithRetry(
-        getVariableDataRoute(dataApiUrl, variableId, { assetMap })
+        getVariableDataRoute(dataApiUrl, variableId, options)
     )
     const metadataPromise = fetchWithRetry(
-        getVariableMetadataRoute(dataApiUrl, variableId, { assetMap })
+        getVariableMetadataRoute(dataApiUrl, variableId, options)
     )
     const [dataResponse, metadataResponse] = await Promise.all([
         dataPromise,
@@ -61,4 +63,27 @@ export async function loadVariableDataAndMetadata(
     const data = await dataResponse.json()
     const metadata = await metadataResponse.json()
     return { data, metadata }
+}
+
+export async function loadVariablesDataSite(
+    variableIds: number[],
+    dataApiUrl: string,
+    archivedChartInfo: ArchiveContext | undefined,
+    noCache?: boolean
+): Promise<MultipleOwidVariableDataDimensionsMap> {
+    const loadVariableDataPromises = variableIds.map((variableId) =>
+        loadVariableDataAndMetadata(variableId, dataApiUrl, {
+            assetMap:
+                archivedChartInfo?.type === "archive-page"
+                    ? archivedChartInfo.assets.runtime
+                    : undefined,
+            noCache,
+        })
+    )
+    const variablesData: OwidVariableDataMetadataDimensions[] =
+        await Promise.all(loadVariableDataPromises)
+    const variablesDataMap = new Map(
+        variablesData.map((data) => [data.metadata.id, data])
+    )
+    return variablesDataMap
 }

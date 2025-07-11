@@ -213,6 +213,24 @@ export type EnrichedBlockChartStory = {
     items: EnrichedChartStoryItem[]
 } & EnrichedBlockWithParseErrors
 
+export type RawBlockExpander = {
+    type: "expander"
+    value: {
+        heading?: string
+        title?: string
+        subtitle?: string
+        content?: OwidRawGdocBlock[]
+    }
+}
+
+export type EnrichedBlockExpander = {
+    type: "expander"
+    heading?: string
+    title: string
+    subtitle?: string
+    content: OwidEnrichedGdocBlock[]
+} & EnrichedBlockWithParseErrors
+
 export enum BlockImageSize {
     Narrow = "narrow",
     Wide = "wide",
@@ -377,24 +395,34 @@ export type EnrichedBlockHorizontalRule = {
 
 export type RawRecircLink = {
     url?: string
+    title?: string
+    subtitle?: string
 }
 
 export type RawBlockRecirc = {
     type: "recirc"
     value?: {
         title?: string
+        align?: string
         links?: RawRecircLink[]
     }
 }
 
+export const recircAlignments = ["left", "center", "right"] as const
+
+export type RecircAlignment = (typeof recircAlignments)[number]
+
 export type EnrichedRecircLink = {
     url: string
+    title?: string
+    subtitle?: string
     type: "recirc-link"
 }
 
 export type EnrichedBlockRecirc = {
     type: "recirc"
-    title: SpanSimpleText
+    title: string
+    align?: RecircAlignment
     links: EnrichedRecircLink[]
 } & EnrichedBlockWithParseErrors
 
@@ -663,6 +691,7 @@ export type RawBlockResearchAndWriting = {
     value: {
         heading?: string
         "hide-authors"?: string
+        "hide-date"?: string
         // We're migrating these to be arrays, but have to support the old use-case until it's done
         primary?:
             | RawBlockResearchAndWritingLink
@@ -701,6 +730,7 @@ export type EnrichedBlockResearchAndWriting = {
     type: "research-and-writing"
     heading?: string
     "hide-authors": boolean
+    "hide-date": boolean
     primary: EnrichedBlockResearchAndWritingLink[]
     secondary: EnrichedBlockResearchAndWritingLink[]
     more?: EnrichedBlockResearchAndWritingRow
@@ -1008,6 +1038,7 @@ export type OwidRawGdocBlock =
     | RawBlockAside
     | RawBlockCallout
     | RawBlockChart
+    | RawBlockExpander
     | RawBlockNarrativeChart
     | RawBlockCode
     | RawBlockDonorList
@@ -1061,6 +1092,7 @@ export type OwidEnrichedGdocBlock =
     | EnrichedBlockAside
     | EnrichedBlockCallout
     | EnrichedBlockChart
+    | EnrichedBlockExpander
     | EnrichedBlockNarrativeChart
     | EnrichedBlockCode
     | EnrichedBlockDonorList

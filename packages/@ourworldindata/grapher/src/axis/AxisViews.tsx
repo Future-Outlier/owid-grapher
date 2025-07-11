@@ -15,6 +15,7 @@ import { VerticalAxis, HorizontalAxis, DualAxis } from "./Axis"
 import classNames from "classnames"
 import { GRAPHER_DARK_TEXT } from "../color/ColorConstants"
 import { ScaleType, DetailsMarker, AxisAlign } from "@ourworldindata/types"
+import { ComparisonLine } from "../comparisonLine/ComparisonLine"
 
 const TICK_COLOR = "#ddd"
 const FAINT_TICK_COLOR = "#eee"
@@ -167,6 +168,7 @@ interface DualAxisViewProps {
     lineWidth?: number
     gridDashPattern?: string
     detailsMarker?: DetailsMarker
+    backgroundColor?: string
 }
 
 @observer
@@ -180,6 +182,7 @@ export class DualAxisComponent extends React.Component<DualAxisViewProps> {
             lineWidth,
             gridDashPattern,
             detailsMarker,
+            backgroundColor,
         } = this.props
         const { bounds, horizontalAxis, verticalAxis, innerBounds } = dualAxis
 
@@ -224,12 +227,22 @@ export class DualAxisComponent extends React.Component<DualAxisViewProps> {
             />
         )
 
+        const comparisonLines = dualAxis.comparisonLines.map((line, index) => (
+            <ComparisonLine
+                key={`${line.label}-${index}`}
+                dualAxis={dualAxis}
+                comparisonLine={line}
+                backgroundColor={backgroundColor}
+            />
+        ))
+
         return (
             <>
                 {horizontalAxisComponent}
                 {verticalAxisComponent}
                 {verticalGridlines}
                 {horizontalGridlines}
+                {comparisonLines}
             </>
         )
     }

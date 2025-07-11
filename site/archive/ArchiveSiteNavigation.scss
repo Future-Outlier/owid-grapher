@@ -36,11 +36,24 @@
         text-transform: uppercase;
         @include h5-black-caps;
         margin-bottom: 4px;
+        display: flex;
+        gap: 8px;
+    }
+
+    .archive-navigation-bar__archive_text--tooltip {
+        color: $blue-30;
+
+        &:hover,
+        &:active {
+            color: white;
+        }
     }
 
     .archive-navigation-bar__date {
         text-align: center;
         @include subtitle-1;
+        margin-top: 0;
+        margin-bottom: 0;
 
         .archive-navigation-bar__time-value {
             font-size: 0.7em;
